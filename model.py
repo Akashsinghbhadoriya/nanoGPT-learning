@@ -15,24 +15,30 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+# class LayerNorm is the layer normalization to produce mean as 0 and variance 1
+#normalization uses scale for variance and shift for mean scale * norm + scale
+#pure normalization forces every layer to become linear with mean 0 var 1 but if later model wants to make it a complex neural network we use scale and shift
+#scale and shift are learnable parameters which get updated during backpropogation
+# we are not using pytorch nn.LayerNorm because it does not easily allow us to toggle on/off the bias parameter so this custom class
 class LayerNorm(nn.Module):
     """ LayerNorm but with an optional bias. PyTorch doesn't support simply bias=False """
 
     def __init__(self, ndim, bias):
         super().__init__()
-        self.weight = nn.Parameter(torch.ones(ndim))
-        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None
+        self.weight = nn.Parameter(torch.ones(ndim)) # this acts as the scale parameter gamma defaults to float.32
+        self.bias = nn.Parameter(torch.zeros(ndim)) if bias else None #this acts a shift parameter or beta and bias if true then we initiallize with zero
 
     def forward(self, input):
-        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
+        return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5) #uses pytorch function for faster calculation when training models 
 
+# class CausalSelfAttention to mask the tokens of the future we will only be using the tokens appearing before the current position
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         # key, query, value projections for all heads, but in a batch
-        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias)
+        self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd, bias=config.bias) # good practice to calculate the matrix multiplication in 1 go instead of 3 different matrix
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
@@ -75,6 +81,7 @@ class CausalSelfAttention(nn.Module):
         y = self.resid_dropout(self.c_proj(y))
         return y
 
+# class MLP is the feed forward network
 class MLP(nn.Module):
 
     def __init__(self, config):
@@ -91,6 +98,7 @@ class MLP(nn.Module):
         x = self.dropout(x)
         return x
 
+# class Block is the transformer block with all the components of a transformer
 class Block(nn.Module):
 
     def __init__(self, config):
@@ -105,6 +113,7 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
+# class GPTConfig contains the configuration of the model we will be creating with all the hyperparameters
 @dataclass
 class GPTConfig:
     block_size: int = 1024
@@ -115,6 +124,7 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
+# class GPT(nn.Module) is the main class of initializing a model
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -328,3 +338,24 @@ class GPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
+    
+if __name__ == "__main__":
+    print("testing the model")
+
+    # The file contains the complete gpt2 architecture
+
+    # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
+    input = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]) #use float.32
+    layernorm = LayerNorm(5,True)
+    output_norm = layernorm(input)
+    print("output normalization tensor:", output_norm)
+    mean_norm = output_norm.mean(dim=-1,keepdim=True)
+    var_norm = output_norm.var(dim=-1,keepdim=True) # variance calculation uses bessels correction variance is divided by n-1 rather than n
+    print("mean after norm:",mean_norm)
+    print("var after norm:",var_norm)
+
+    # class GPT(nn.Module) is the main class of initializing a model
+    # class GPTConfig contains the configuration of the model we will be creating with all the hyperparameters
+    # class Block is the transformer block with all the components of a transformer
+    # class MLP is the feed forward network
+    # class CausalSelfAttention to mask the tokens of the future we will only be using the tokens appearing before the current position
