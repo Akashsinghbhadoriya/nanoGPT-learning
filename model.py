@@ -10,6 +10,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 import math
 import inspect
 from dataclasses import dataclass
+from transformers import GPT2Tokenizer
 
 import torch
 import torch.nn as nn
@@ -114,6 +115,7 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def forward(self, x):
+        #shortcut connections or residual connection
         x = x + self.attn(self.ln_1(x))
         x = x + self.mlp(self.ln_2(x))
         return x
@@ -138,6 +140,7 @@ class GPT(nn.Module):
         assert config.block_size is not None
         self.config = config
 
+        # complete transformer block of gpt
         self.transformer = nn.ModuleDict(dict(
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
@@ -150,11 +153,16 @@ class GPT(nn.Module):
         # "UserWarning: functional_call was passed multiple values for tied weights.
         # This behavior is deprecated and will be an error in future versions"
         # not 100% sure what this is, so far seems to be harmless. TODO investigate
+        # Weight tying is used because the token enbedding layer and the output layer have the same dimension
+        # So we count the number of parameters only once this is called weight tying
         self.transformer.wte.weight = self.lm_head.weight # https://paperswithcode.com/method/weight-tying
 
         # init all weights
         self.apply(self._init_weights)
         # apply special scaled init to the residual projections, per GPT-2 paper
+        # each time the data passes through the layer we have 2 residual connections one after self attention and 1 after MLP
+        # So as input passes through each layer the variance increase and the model starts to diverge
+        # So to keep the output variance same as the input variance we divide the output after each layer with sqrt(2 * n_layer)
         for pn, p in self.named_parameters():
             if pn.endswith('c_proj.weight'):
                 torch.nn.init.normal_(p, mean=0.0, std=0.02/math.sqrt(2 * config.n_layer))
@@ -174,34 +182,40 @@ class GPT(nn.Module):
             n_params -= self.transformer.wpe.weight.numel()
         return n_params
 
+    # custom weight initialization method used before training.
+    # It sets a stable starting variance for linear and embedding layers like token and position
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
             if module.bias is not None:
-                torch.nn.init.zeros_(module.bias)
+                torch.nn.init.zeros_(module.bias) # bias to zero to avoid initial deviation
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
         device = idx.device
         b, t = idx.size()
+        # sequence length t should be less than the block size which is our context length of the model
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
         pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
         # forward the GPT model itself
-        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
+        tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd) => (b,t)=> (b,t,n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
             x = block(x)
-        x = self.transformer.ln_f(x)
+        x = self.transformer.ln_f(x) #layer normalization after the transformer block
 
         if targets is not None:
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
+            # cross entropy loss is the negative loss probability calculation comparing the predicted values with target values
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
         else:
             # inference-time mini-optimization: only forward the lm_head on the very last position
+            # we are forwarding it only on the last position because it will be the next token which is generated
+            # tokens before the last position are not used for calculating and we save some calculation
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
@@ -213,10 +227,10 @@ class GPT(nn.Module):
         # but want to use a smaller block size for some smaller, simpler model
         assert block_size <= self.config.block_size
         self.config.block_size = block_size
-        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size])
+        self.transformer.wpe.weight = nn.Parameter(self.transformer.wpe.weight[:block_size]) # updating the positional embedding layer
         for block in self.transformer.h:
             if hasattr(block.attn, 'bias'):
-                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size]
+                block.attn.bias = block.attn.bias[:,:,:block_size,:block_size] # reduce the bias size for mask filling to fit the new context length
 
     @classmethod
     def from_pretrained(cls, model_type, override_args=None):
@@ -247,9 +261,11 @@ class GPT(nn.Module):
         model = GPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()
+        # we discard it since it is not learnable parameter during fine-tuning and can break weight optimizers
         sd_keys = [k for k in sd_keys if not k.endswith('.attn.bias')] # discard this mask / buffer, not a param
 
         # init a huggingface/transformers model
+        # loads a pretrained gpt model from huggingface
         model_hf = GPT2LMHeadModel.from_pretrained(model_type)
         sd_hf = model_hf.state_dict()
 
@@ -264,7 +280,7 @@ class GPT(nn.Module):
         for k in sd_keys_hf:
             if any(k.endswith(w) for w in transposed):
                 # special treatment for the Conv1D weights we need to transpose
-                assert sd_hf[k].shape[::-1] == sd[k].shape
+                assert sd_hf[k].shape[::-1] == sd[k].shape #sd_hf[k].shape[::-1] reverses the array dimension using slicing
                 with torch.no_grad():
                     sd[k].copy_(sd_hf[k].t())
             else:
@@ -282,6 +298,8 @@ class GPT(nn.Module):
         param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
         # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
+        # weight decay reduces model overfitting by penalising large weights
+        # we weight decay only learnable parameters which are embedding and matmuls
         decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
         nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
         optim_groups = [
@@ -293,6 +311,7 @@ class GPT(nn.Module):
         print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
         print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
         # Create AdamW optimizer and use the fused version if it is available
+        # fused is used for speeding up the optimization
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
@@ -338,6 +357,9 @@ class GPT(nn.Module):
             # apply softmax to convert logits to (normalized) probabilities
             probs = F.softmax(logits, dim=-1)
             # sample from the distribution
+            # multinomial is the generalization of binomial distribution
+            # this function picks value in such a way that most of the time we pick the value with highest probability
+            # but to generate different outputs for same input it also generates different values for the input
             idx_next = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
             idx = torch.cat((idx, idx_next), dim=1)
@@ -353,14 +375,48 @@ if __name__ == "__main__":
     input = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]) #use float.32
     layernorm = LayerNorm(5,True)
     output_norm = layernorm(input)
-    print("output normalization tensor:", output_norm)
+    # print("output normalization tensor:", output_norm)
     mean_norm = output_norm.mean(dim=-1,keepdim=True)
     var_norm = output_norm.var(dim=-1,keepdim=True) # variance calculation uses bessels correction variance is divided by n-1 rather than n
-    print("mean after norm:",mean_norm)
-    print("var after norm:",var_norm)
+    # print("mean after norm:",mean_norm)
+    # print("var after norm:",var_norm)
 
-    # class GPT(nn.Module) is the main class of initializing a model
-    # class GPTConfig contains the configuration of the model we will be creating with all the hyperparameters
-    # class Block is the transformer block with all the components of a transformer
-    # class MLP is the feed forward network
     # class CausalSelfAttention to mask the tokens of the future we will only be using the tokens appearing before the current position
+    gptConfig = GPTConfig()
+    attention = CausalSelfAttention(gptConfig)
+    batch = torch.randn(2, 8, 768)
+    # print("batch shape:", batch.shape)
+    context_vector = attention(batch)
+    # print("context_vector shape:", context_vector.shape)
+    # print("context_vector:", context_vector)
+
+    # class MLP is the feed forward network
+    # we take the context vector and pass to the feed - forward network
+    ffn = MLP(gptConfig)
+    ffn_output = ffn(context_vector)
+    # print("ffn shape", ffn_output.shape)
+    # print("ffn value", ffn_output)
+
+    # class Block is the transformer block with all the components of a transformer
+    trf_block = Block(gptConfig)
+    transformer_output = trf_block(batch)
+    # print("transformer output shape:", transformer_output.shape)
+    # print("1 transformer output:", transformer_output)
+    # class GPT(nn.Module) is the main class of initializing a model
+
+    input_text = "capital of india is"
+
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    input_token_ids = tokenizer.encode(input_text, return_tensors="pt")
+    print("input tokens:", input_token_ids)
+
+    config = GPTConfig()
+    model = GPT.from_pretrained("gpt2")
+
+    output_tokens = model.generate(input_token_ids, 30, 1)
+    print("output tokens:", output_tokens)
+    output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
+    print("output text:", output_text)
+
+    
+
