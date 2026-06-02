@@ -14,6 +14,12 @@ $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=0 --master_addr=123.456.123
 - Run on the worker node:
 $ torchrun --nproc_per_node=8 --nnodes=2 --node_rank=1 --master_addr=123.456.123.456 --master_port=1234 train.py
 (If your cluster does not have Infiniband interconnect prepend NCCL_IB_DISABLE=1)
+
+ddp-> scales up model training by replicating the entire model across multiple GPUs or machines
+ddp-> splits the training data into smaller subsets, processes them simultaneously and automatically synchronises the model update to keep everything perfectly aligned
+
+node -> entire self-contained computer server containing one or more GPUs, CPUs, memory and storage
+GPU -> specialized worker
 """
 
 import os
@@ -33,13 +39,14 @@ from model import GPTConfig, GPT
 # default config values designed to train a gpt2 (124M) on OpenWebText
 # I/O
 out_dir = 'out'
-eval_interval = 2000
+eval_interval = 2000 # the interval after which we evaluate the model number of batches
 log_interval = 1
-eval_iters = 200
+eval_iters = 200 # the number of batches on which we evaluate the model
 eval_only = False # if True, script exits right after the first eval
-always_save_checkpoint = True # if True, always save a checkpoint after each eval
-init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*'
+always_save_checkpoint = True # if True, always save a checkpoint after each eval we store the snapshot of the AI model (weights, optimizer states and metrics) after each eval step
+init_from = 'scratch' # 'scratch' or 'resume' or 'gpt2*' wether we are training the model from scratch or resuming the previous training
 # wandb logging
+# Used for tracking model performance metrics such as accuracy loss and other evaluation metrics during the training and evaluation phase
 wandb_log = False # disabled by default
 wandb_project = 'owt'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
@@ -55,24 +62,35 @@ n_embd = 768
 dropout = 0.0 # for pretraining 0 is good, for finetuning try 0.1+
 bias = False # do we use bias inside LayerNorm and Linear layers?
 # adamw optimizer
-learning_rate = 6e-4 # max learning rate
+learning_rate = 6e-4 # max learning rate (hyperparameter that determines the size of the steps an optimizer takes to adjust a machine learning model's weight)
 max_iters = 600000 # total number of training iterations
-weight_decay = 1e-1
-beta1 = 0.9
-beta2 = 0.95
+weight_decay = 1e-1 # regularization technique to prevent model from overfitting it works by penalizing larger weights by adding a term to the loss function
+# exponential decay rates used in adaptive learning algorithms(Adam)
+beta1 = 0.9 # The First moment (Mean)
+beta2 = 0.95 # The Second moment (Uncentered Variance)
+# gradient clipping prevents the exploding gradient problem where unsually large gradients cause unstable weight updates during backpropogation
+# setting grad_clip =1 acts as speed limit if the gradient norm exceeds 1.0 it is scaled down to 0.0 the feature is disabled
 grad_clip = 1.0 # clip gradients at this value, or disable if == 0.0
 # learning rate decay settings
 decay_lr = True # whether to decay the learning rate
+# warmup iters define the number of training steps where the learning rate is gradually increased from tiny value to your target learning rate
+# this is done to prevent the model from skewing heavily towards the very first batches
 warmup_iters = 2000 # how many steps to warm up for
-lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla
-min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla
+# total number of iterations over which the learning rate decays
+lr_decay_iters = 600000 # should be ~= max_iters per Chinchilla scaling paper
+min_lr = 6e-5 # minimum learning rate, should be ~= learning_rate/10 per Chinchilla scaling paper
 # DDP settings
-backend = 'nccl' # 'nccl', 'gloo', etc.
+# nccl-> nvidia collective communications library (extremely fast)
+# gloo -> comapratively a lot slower than nccl
+# mpi -> message passing interface (HPC clusters used in)
+backend = 'nccl' # 'nccl', 'gloo', etc. (communication protocol used for multi-gpu and multi-node training)
 # system
 device = 'cuda' # examples: 'cpu', 'cuda', 'cuda:0', 'cuda:1' etc., or try 'mps' on macbooks
+# gradscaler is used to prevent the gradients from flushing to zero during half precision training
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16' # 'float32', 'bfloat16', or 'float16', the latter will auto implement a GradScaler
 compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
+# this is used for modifying the gobal configuration variables using a configuration file or from cli
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read()) # overrides from command line or config file
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
@@ -81,17 +99,17 @@ config = {k: globals()[k] for k in config_keys} # will be useful for logging
 # various inits, derived attributes, I/O setup
 ddp = int(os.environ.get('RANK', -1)) != -1 # is this a ddp run?
 if ddp:
-    init_process_group(backend=backend)
-    ddp_rank = int(os.environ['RANK'])
-    ddp_local_rank = int(os.environ['LOCAL_RANK'])
-    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    init_process_group(backend=backend) #intialize the distributed environment for multi-gpu and multi-node training
+    ddp_rank = int(os.environ['RANK']) # global identifier for specific process across all machines(nodes) 2 nodes 4 gpus each then rank is from 0-7
+    ddp_local_rank = int(os.environ['LOCAL_RANK']) # local identifier process restricted to a single machine if 1 node has 4 gpus then the local_rank is from 0-3
+    ddp_world_size = int(os.environ['WORLD_SIZE']) # total count of processes in the distributed training job => nodes * gpu
     device = f'cuda:{ddp_local_rank}'
     torch.cuda.set_device(device)
     master_process = ddp_rank == 0 # this process will do logging, checkpointing etc.
-    seed_offset = ddp_rank # each process gets a different seed
+    seed_offset = ddp_rank # each process gets a different seed seed offset is used to generate different sequence of random numbers across all GPUs
     # world_size number of processes will be training simultaneously, so we can scale
     # down the desired gradient accumulation iterations per process proportionally
-    assert gradient_accumulation_steps % ddp_world_size == 0
+    assert gradient_accumulation_steps % ddp_world_size == 0 # distribute it across processes
     gradient_accumulation_steps //= ddp_world_size
 else:
     # if not ddp, we are running on a single gpu, and one process
@@ -103,28 +121,32 @@ print(f"tokens per iteration will be: {tokens_per_iter:,}")
 
 if master_process:
     os.makedirs(out_dir, exist_ok=True)
-torch.manual_seed(1337 + seed_offset)
-torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
-torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
+torch.manual_seed(1337 + seed_offset) # used for random number generation
+torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul use the tensor core on GPUs for faster multiplication
+torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn(CUDA Deep Neural Network Library)
 device_type = 'cuda' if 'cuda' in device else 'cpu' # for later use in torch.autocast
 # note: float16 data type will automatically use a GradScaler
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
-ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
+# torch.amp.autocast activates the Automatic Mixed Precision this speeds up training
+ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype) # enables mixed-precision training
 
 # poor man's data loader
 data_dir = os.path.join('data', dataset)
 def get_batch(split):
     # We recreate np.memmap every batch to avoid a memory leak, as per
     # https://stackoverflow.com/questions/45132940/numpy-memmap-memory-usage-want-to-iterate-once/61472122#61472122
+    # did not understood much but revisit it later
     if split == 'train':
         data = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
     else:
         data = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
-    ix = torch.randint(len(data) - block_size, (batch_size,))
+    # sample a batch of training sequences from a continuous text dataset
+    ix = torch.randint(len(data) - block_size, (batch_size,)) # picks batch_size random starting points from the data which range from 0 to len(data) - block_size
     x = torch.stack([torch.from_numpy((data[i:i+block_size]).astype(np.int64)) for i in ix])
     y = torch.stack([torch.from_numpy((data[i+1:i+1+block_size]).astype(np.int64)) for i in ix])
     if device_type == 'cuda':
         # pin arrays x,y, which allows us to move them to GPU asynchronously (non_blocking=True)
+        #pinning memory locks the portion of the "RAM" for GPU to directly access the memory
         x, y = x.pin_memory().to(device, non_blocking=True), y.pin_memory().to(device, non_blocking=True)
     else:
         x, y = x.to(device), y.to(device)
@@ -166,7 +188,7 @@ elif init_from == 'resume':
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
     # create the model
-    gptconf = GPTConfig(**model_args)
+    gptconf = GPTConfig(**model_args) # double asterisk unpacks a dictionary of configuration arguments
     model = GPT(gptconf)
     state_dict = checkpoint['model']
     # fix the keys of the state dictionary :(
@@ -205,11 +227,11 @@ checkpoint = None # free up memory
 if compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
-    model = torch.compile(model) # requires PyTorch 2.0
+    model = torch.compile(model) # requires PyTorch 2.0 optimizes the model for faster execution on CPU and GPUs
 
 # wrap model into DDP container
 if ddp:
-    model = DDP(model, device_ids=[ddp_local_rank])
+    model = DDP(model, device_ids=[ddp_local_rank]) # module to enable multi-GPU distributed training
 
 # helps estimate an arbitrarily accurate loss over either split using many batches
 @torch.no_grad()
@@ -236,6 +258,7 @@ def get_lr(it):
     if it > lr_decay_iters:
         return min_lr
     # 3) in between, use cosine decay down to min learning rate
+    # this code implements cosine learning rate decay with warmup schedule
     decay_ratio = (it - warmup_iters) / (lr_decay_iters - warmup_iters)
     assert 0 <= decay_ratio <= 1
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio)) # coeff ranges 0..1
@@ -271,9 +294,12 @@ while True:
                 "lr": lr,
                 "mfu": running_mfu*100, # convert to percentage
             })
-        if losses['val'] < best_val_loss or always_save_checkpoint:
-            best_val_loss = losses['val']
+        is_best_loss = losses['val'] < best_val_loss
+        if is_best_loss or always_save_checkpoint:
             if iter_num > 0:
+                if is_best_loss:
+                    best_val_loss = losses['val']
+
                 checkpoint = {
                     'model': raw_model.state_dict(),
                     'optimizer': optimizer.state_dict(),
@@ -333,4 +359,8 @@ while True:
         break
 
 if ddp:
-    destroy_process_group()
+    destroy_process_group() # cleanly terminates the distributed multi-GPU/multi-node backend
+
+
+# concepts to revisit
+# 1. memmap logic of memory leakage
