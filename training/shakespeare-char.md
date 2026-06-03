@@ -5,6 +5,7 @@ The training was done a mac M4 and the configurations of the training were as fo
 1. python file for training -> train.py
 2. configuration -> config/train_shakespeare_char.py
 3. This the gpt2 architecture from the nanoGPT which is based on the Attention is all you need paper.
+4. command for training `python3 train.py config/train_shakespeare_char.py`
 
 ### Training observations
 
@@ -16,6 +17,11 @@ The training was done a mac M4 and the configurations of the training were as fo
 
 
 ### training data
+
+```tokens per iteration will be: 16,384
+found vocab_size = 65 
+Initializing a new model from scratch
+number of parameters: 10.65M
 step 0: train loss 4.2882, val loss 4.2813
 iter 0: loss 4.2661, time 33197.22ms, mfu -100.00%
 iter 10: loss 3.4788, time 1705.53ms, mfu 0.22%
@@ -77,4 +83,4 @@ iter 480: loss 2.3440, time 2193.15ms, mfu 0.16%
 iter 490: loss 2.3742, time 2073.40ms, mfu 0.16%
 step 500: train loss 2.3098, val loss 2.3338
 saving checkpoint to out-shakespeare-char
-iter 500: loss 2.3697, time 50348.15ms, mfu 0.15%
+iter 500: loss 2.3697, time 50348.15ms, mfu 0.15%```

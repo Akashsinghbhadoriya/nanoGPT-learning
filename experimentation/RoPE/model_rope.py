@@ -6,7 +6,7 @@ import math
 import inspect
 from dataclasses import dataclass
 from transformers import GPT2Tokenizer
-from RoPE import RotaryEmbedding, rotate_half, apply_rotary_pos_emb
+from .RoPE import RotaryEmbedding, rotate_half, apply_rotary_pos_emb
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
