@@ -94,4 +94,3 @@ iter 480: loss 1.9241, time 2264.52ms, mfu 0.16%
 iter 490: loss 1.9189, time 2226.66ms, mfu 0.16%
 step 500: train loss 1.8105, val loss 1.9168
 saving checkpoint to out-shakespeare-char-rope
-iter 500: loss 1.9074, time 52539.78ms, mfu 0.14%```

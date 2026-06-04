@@ -44,13 +44,13 @@ The repository serves as:
 Planned implementations:
 
 * [x] Rotary Position Embeddings (RoPE)
-* [ ] RMSNorm
-* [ ] SwiGLU
+* [x] RMSNorm
 * [ ] KV Cache
 * [ ] Grouped Query Attention (GQA)
+* [ ] SwiGLU
 * [ ] Multi Query Attention (MQA)
-* [ ] Flash Attention Integration
 * [ ] Quantization Experiments
+* [ ] Flash Attention Integration
 
 ---
 

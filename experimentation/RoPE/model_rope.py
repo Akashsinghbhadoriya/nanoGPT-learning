@@ -1,5 +1,7 @@
 """
-Modifying the original model.py to use Rotary Positional embedding
+Modifying the original model.py to use 
+1. Rotary Positional embedding
+2. Replacing LayerNormalization with RMSNorm
 """
 
 import math
@@ -10,6 +12,7 @@ from .RoPE import RotaryEmbedding, rotate_half, apply_rotary_pos_emb
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from experimentation.RMSNorm import RMSNorm
 
 # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
 class LayerNorm(nn.Module):
@@ -109,9 +112,9 @@ class Block(nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_1 = RMSNorm.RMSNorm(config.n_embd, bias=config.bias) # replace layer normalization with RMSNorm
         self.attn = CausalSelfAttention(config)
-        self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
+        self.ln_2 = RMSNorm.RMSNorm(config.n_embd, bias=config.bias) # replace layer normalization with RMSNorm
         self.mlp = MLP(config)
 
     def forward(self, x):
@@ -146,7 +149,7 @@ class GPT(nn.Module):
             # wpe = nn.Embedding(config.block_size, config.n_embd), removing this since using rope
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
-            ln_f = LayerNorm(config.n_embd, bias=config.bias),
+            ln_f = RMSNorm.RMSNorm(config.n_embd, bias=config.bias), # replace layer normalization with RMSNorm
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         # with weight tying when using torch.compile() some warnings get generated:
