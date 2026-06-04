@@ -8,6 +8,17 @@ The core implementations is:
 2. Rotation : Each pair is treated as 2D complex number and is rotated by an angle determined by the absolute position and dimension index of the vector.
 3. Relative Relationships : when the self - attention calculates the dot product of the rotated query and key vector the absolute positions are canceled out and we are left with only the relative postions
 
+### practical significance
+
+1. Rope provides positional information while improving models ability to generalize across longer context.
+2. Learned positional embeddings are tied to positions seen during the training and for longer context the performance degrades where the trainging context length is smaller than the one provided in the input.
+3. Rope encodes position without adding embeddings by rotating the query and key vectors based on the position. It preserves vector magnitude while introducing positional information. This allows relative positions to automaticallly emerge in the attention vectors.
+4. Rotations are only applied to query and key because position must influence token relationships not the actual value if we rotate the value it will degrade the model performance also dot product calculates the relative position between query and key as it give relative rotation.
+5. The relative angle between token rotations affect the similarity scores
+6. If we have same frequency for all the dimension the positional information will become repetitive and less expressive. Different frequencies capture both local and long-range positional information. Rope generalizes over long range because it uses a mathematical pattern rather than positional ids making the model extrapolate beyond training lengths.
+7. the Rope should be applied before attention because after that the token relationships will be fixed.
+8. Lower validation loss and improved convergence compared to baseline model convinced me that rope is working.
+
 Detailed Explaination:
 
 ### Sinusoidal positional embeddings

@@ -33,9 +33,9 @@ The repository serves as:
 * [x] Document Causal Self Attention
 * [x] Document MLP block
 * [x] Document GPT architecture
-* [ ] Trace complete forward pass
-* [ ] Understand train.py end-to-end
-* [ ] Understand sampling pipeline
+* [x] Trace complete forward pass
+* [x] Understand train.py end-to-end
+* [x] Understand sampling pipeline
 
 ---
 
@@ -43,7 +43,7 @@ The repository serves as:
 
 Planned implementations:
 
-* [ ] Rotary Position Embeddings (RoPE)
+* [x] Rotary Position Embeddings (RoPE)
 * [ ] RMSNorm
 * [ ] SwiGLU
 * [ ] KV Cache

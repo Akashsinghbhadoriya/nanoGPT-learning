@@ -12,6 +12,13 @@ Transformer architecture is the building block of modern large language models. 
 5. Multi-head Causal Self Attention(x) -> LayerNormalization(x)
 6. LayerNormalization(x) -> FFN(x) (residual connection added after this operation)
 
+### Practical Significance
+
+1. token embedding table converts the discrete token ids into continous vectors.
+2. Future tokens are hidden using causal masking this enables autoregressive next-token prediction.
+3. Weight tying means the token embedding and the output projection matrix share the parameters this reduces parameter count and improves language modeling performance.
+4. Weight tying improves performance because it encorages consistency between how tokens are represented and how they are predicted.
+
 #Tensor Tracing
 
 | Step | Input Dimensions | Output Dimensions | Notes |
