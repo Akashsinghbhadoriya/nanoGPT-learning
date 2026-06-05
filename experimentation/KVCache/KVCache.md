@@ -7,6 +7,8 @@ The LLM predict the next work using the previous tokens as an input so when we g
 ![alt text](image.png)
 
 LLMs Generating text without KV Cache
+
+
 ![alt text](image-1.png)
 
 LLMs Generating text with KV Cache
@@ -15,6 +17,10 @@ LLMs Generating text with KV Cache
 1. We do not store the query values because the query is needed for the current token, while keys and values are needed for future tokens.
 2. Intution is assume a library is attention so query is the indivdual query "where is the book ?" which is for the current user but the key is the metadata of the book which will be needed in future computations as well as value is the content of the book which will be needed in the future.
 3. Complexity improvement is $O(N^2)$ to $O(N)$
+4. Important metric for KV Cache is Token per sec, Latency and memory usage
+5. Tokens per sec is really high for KV Cache then a normal model without KV Cache.
+6. Latency means per token time which increases exponentially with increase in generated tokens in a model without KV Cache but in a model with KV Cache it is constant.
+7. Memory usage increases as we generate more tokens.
 
 ### Implementation
 
@@ -36,3 +42,15 @@ $$attn = (q_{new} * k_{cache}^T)$$
 
 $$attn = softmax(attn)$$
 $$out = attn @ v_{cache}$$
+
+#### Memory usage in KV Cache is given by
+
+$$KV Memory = 2×B×T×H×D×bytes per element$$
+where:
+```
+B = batch size
+T = sequence length
+H = number of heads
+D = head dimension
+factor 2 = K and V
+```

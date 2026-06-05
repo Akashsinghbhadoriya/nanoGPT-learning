@@ -10,6 +10,7 @@ import time
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+import json
 
 # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
 class LayerNorm(nn.Module):
@@ -223,6 +224,14 @@ class GPT(nn.Module):
         self.current_pos = 0
         for block in self.transformer.h :
             block.reset_cache()
+    
+    def memory_usage_kv_cache(self):
+        total_bytes = 0
+        for block in self.transformer.h :
+            total_bytes += block.attn.cache_k.numel() * block.attn.cache_k.element_size()
+            total_bytes += block.attn.cache_v.numel() * block.attn.cache_v.element_size()
+
+        return total_bytes / 1024**2
 
     def forward(self, idx, targets=None, use_cache = False):
         device = idx.device
@@ -382,14 +391,19 @@ class GPT(nn.Module):
         modified this to use KV cache
         """
 
+        times = []
+        memory = 0
         if use_cache:
             self.reset_kv_cache()
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
 
             for _ in range(max_new_tokens):
+                start = time.time()
                 # forward the model to get the logits for the index in the sequence
                 with torch.no_grad():
                     logits, _ = self(idx_cond, use_cache = use_cache)
+                end = time.time()
+                times.append((end - start))
                 # pluck the logits at the final step and scale by desired temperature
                 logits = logits[:, -1, :] / temperature
                 # optionally crop the logits to only the top k options
@@ -402,13 +416,18 @@ class GPT(nn.Module):
                 # append sampled index to the running sequence and continue
                 idx = torch.cat((idx, idx_next), dim=1)
                 idx_cond = idx_next
+            
+            memory = self.memory_usage_kv_cache()
 
         else :
             for _ in range(max_new_tokens):
                 # if the sequence context is growing too long we must crop it at block_size
                 idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
                 # forward the model to get the logits for the index in the sequence
+                start = time.time()
                 logits, _ = self(idx_cond)
+                end = time.time()
+                times.append((end - start))
                 # pluck the logits at the final step and scale by desired temperature
                 logits = logits[:, -1, :] / temperature
                 # optionally crop the logits to only the top k options
@@ -425,7 +444,7 @@ class GPT(nn.Module):
                 # append sampled index to the running sequence and continue
                 idx = torch.cat((idx, idx_next), dim=1)
 
-        return idx
+        return idx, memory, sum(times) / len(times)
     
 if __name__ == "__main__":
     print("testing the model")
@@ -438,16 +457,42 @@ if __name__ == "__main__":
 
     config = GPTConfig()
     model = GPT.from_pretrained("gpt2")
-    max_new_tokens = 1000
-    start_time = time.time()
-    output_tokens = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= True)
-    end_time = time.time()
-    print("output tokens:", output_tokens)
-    output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
-    print("output text:", output_text)
-    total_time = end_time - start_time
-    total_tokens_sec = max_new_tokens / total_time
-    print("tokens generated per sec using KV cache:", total_tokens_sec)
+    # benchmark_kv = []
+    # for x in range(10, 511, 50):
+    #     print(f"Generating for max new tokens:{x}")
+    #     max_new_tokens = x
+    #     start_time = time.time()
+    #     output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= True)
+    #     end_time = time.time()
+    #     latency = latency * 1000 #converting to ms
+    #     output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
+    #     total_time = end_time - start_time
+    #     print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
+    #     total_tokens_sec = max_new_tokens / total_time
+    #     print(f"tokens per sec is : {total_tokens_sec}")
+    #     benchmark_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
+    
+    # with open("benchmark_results_kv.json", "w") as file:
+    #     json.dump(benchmark_kv, file, indent=4)
+
+
+    benchmark__without_kv = []
+    for x in range(10, 511, 50):
+        print(f"Generating for max new tokens:{x}")
+        max_new_tokens = x
+        start_time = time.time()
+        output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= False)
+        end_time = time.time()
+        latency = latency * 1000 #converting to ms
+        output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
+        total_time = end_time - start_time
+        print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
+        total_tokens_sec = max_new_tokens / total_time
+        print(f"tokens per sec is : {total_tokens_sec}")
+        benchmark__without_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
+    
+    with open("benchmark_results_without_kv.json", "w") as file:
+        json.dump(benchmark__without_kv, file, indent=4)
 
     
 

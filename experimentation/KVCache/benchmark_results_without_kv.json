@@ -1,0 +1,79 @@
+[
+    {
+        "token_generated": 10,
+        "tokens_per_sec": 57.20467533176034,
+        "total_time": 0.17481088638305664,
+        "memory": 0,
+        "latency": 16.42451286315918
+    },
+    {
+        "token_generated": 60,
+        "tokens_per_sec": 60.24476792579256,
+        "total_time": 0.9959371089935303,
+        "memory": 0,
+        "latency": 16.03362162907918
+    },
+    {
+        "token_generated": 110,
+        "tokens_per_sec": 50.04012876693222,
+        "total_time": 2.1982357501983643,
+        "memory": 0,
+        "latency": 19.41356658935547
+    },
+    {
+        "token_generated": 160,
+        "tokens_per_sec": 43.220956728913585,
+        "total_time": 3.7019078731536865,
+        "memory": 0,
+        "latency": 22.562548518180847
+    },
+    {
+        "token_generated": 210,
+        "tokens_per_sec": 36.30583626139231,
+        "total_time": 5.784193992614746,
+        "memory": 0,
+        "latency": 26.954792794727144
+    },
+    {
+        "token_generated": 260,
+        "tokens_per_sec": 31.006216175772863,
+        "total_time": 8.385415315628052,
+        "memory": 0,
+        "latency": 31.640833157759445
+    },
+    {
+        "token_generated": 310,
+        "tokens_per_sec": 28.37037829971518,
+        "total_time": 10.926889896392822,
+        "memory": 0,
+        "latency": 34.64492367159936
+    },
+    {
+        "token_generated": 360,
+        "tokens_per_sec": 25.595247844117214,
+        "total_time": 14.065110921859741,
+        "memory": 0,
+        "latency": 38.46666945351495
+    },
+    {
+        "token_generated": 410,
+        "tokens_per_sec": 23.879450577769056,
+        "total_time": 17.16957426071167,
+        "memory": 0,
+        "latency": 41.277869736276024
+    },
+    {
+        "token_generated": 460,
+        "tokens_per_sec": 21.693084819026467,
+        "total_time": 21.204914093017578,
+        "memory": 0,
+        "latency": 45.49044577971749
+    },
+    {
+        "token_generated": 510,
+        "tokens_per_sec": 19.697656524101166,
+        "total_time": 25.89140486717224,
+        "memory": 0,
+        "latency": 50.14690184125713
+    }
+]
