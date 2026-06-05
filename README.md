@@ -45,7 +45,7 @@ Planned implementations:
 
 * [x] Rotary Position Embeddings (RoPE)
 * [x] RMSNorm
-* [ ] KV Cache
+* [x] KV Cache
 * [ ] Grouped Query Attention (GQA)
 * [ ] SwiGLU
 * [ ] Multi Query Attention (MQA)

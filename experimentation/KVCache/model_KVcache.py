@@ -1,10 +1,5 @@
 """
-Full definition of a GPT Language Model, all of it in this single file.
-References:
-1) the official GPT-2 TensorFlow implementation released by OpenAI:
-https://github.com/openai/gpt-2/blob/master/src/model.py
-2) huggingface/transformers PyTorch implementation:
-https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py
+Modified model.py to implement KV Cache for faster inference during model usage by using the cached key and value matrix
 """
 
 import math
@@ -49,6 +44,10 @@ class CausalSelfAttention(nn.Module):
         self.dropout = config.dropout
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+
+        # register buffer for storing key and value
+        self.register_buffer('cache_k', None, persistent = False)
+        self.register_buffer('cache_v', None, persistent = False)
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
@@ -56,27 +55,47 @@ class CausalSelfAttention(nn.Module):
             #[[1, 1, 1], [1, 1, 1], [1, 1 ,1]] => [[1, 0, 0], [1, 1, 0], [1, 1, 1]]
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
+            
+    # reseting the cache between 2 separate text generation
+    def reset_cache(self) :
+        self.cache_v = None
+        self.cache_k = None
 
-    def forward(self, x):
+    def forward(self, x, use_cache = False):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # (B, T, C) @ (C , 3*C) => (B, T, 3*C) => split along C size last column => (B, T, C)
-        q, k, v  = self.c_attn(x).split(self.n_embd, dim=2) 
+        q_new, k_new, v_new  = self.c_attn(x).split(self.n_embd, dim=2) 
 
         # view to look at data in new format rather than copying to new memory
-        k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
-        v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        k_new = k_new.view(B, T, self.n_head, C // self.n_head) # (B, T, nh, hs)
+        q_new = q_new.view(B, T, self.n_head, C // self.n_head) # (B, T, nh, hs)
+        v_new = v_new.view(B, T, self.n_head, C // self.n_head) # (B, T, nh, hs)
 
+        # if use_Cache is true
+        if use_cache :
+            if self.cache_k is None:
+                self.cache_k = k_new
+                self.cache_v = v_new
+            else :
+                self.cache_k = torch.cat([self.cache_k, k_new], dim = 1)
+                self.cache_v = torch.cat([self.cache_v, v_new], dim = 1)
+            k , v = self.cache_k, self.cache_v
+        else :
+            k, v = k_new, v_new
+
+        k = k.transpose(1,2)
+        q_new = q_new.transpose(1,2)
+        v = v.transpose(1,2)
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
-            y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
+            y = torch.nn.functional.scaled_dot_product_attention(q_new, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
             #dividing by sqrt because to scale down the variance to 1
-            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+            att = (q_new @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
             att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf')) # att*(self.bias) == 0 we set the value as -inf 
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
@@ -114,9 +133,12 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
+    def reset_cache(self):
+        self.attn.reset_cache()
+
+    def forward(self, x, use_cache = False):
         #shortcut connections or residual connection
-        x = x + self.attn(self.ln_1(x))
+        x = x + self.attn(self.ln_1(x), use_cache = use_cache)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -139,6 +161,9 @@ class GPT(nn.Module):
         assert config.vocab_size is not None
         assert config.block_size is not None
         self.config = config
+
+        # current position for cache
+        self.current_pos = 0
 
         # complete transformer block of gpt
         self.transformer = nn.ModuleDict(dict(
@@ -192,19 +217,31 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    # model level cache removal
+    def reset_kv_cache(self):
+
+        self.current_pos = 0
+        for block in self.transformer.h :
+            block.reset_cache()
+
+    def forward(self, idx, targets=None, use_cache = False):
         device = idx.device
         b, t = idx.size()
         # sequence length t should be less than the block size which is our context length of the model
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
-        pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
+
+        if use_cache :
+            pos = torch.arange(self.current_pos,self.current_pos + t, dtype=torch.long, device=device)
+            self.current_pos += t
+        else :
+            pos = torch.arange(0, t, dtype=torch.long, device=device) # shape (t)
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd) => (b,t)=> (b,t,n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, use_cache = use_cache)
         x = self.transformer.ln_f(x) #layer normalization after the transformer block
 
         if targets is not None:
@@ -337,72 +374,61 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, use_cache = False):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        modified this to use KV cache
         """
-        for _ in range(max_new_tokens):
-            # if the sequence context is growing too long we must crop it at block_size
+
+        if use_cache:
+            self.reset_kv_cache()
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
-            # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
-            # optionally crop the logits to only the top k options
-            if top_k is not None:
-                v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
-                logits[logits < v[:, [-1]]] = -float('Inf')
-            # apply softmax to convert logits to (normalized) probabilities
-            probs = F.softmax(logits, dim=-1)
-            # sample from the distribution
-            # multinomial is the generalization of binomial distribution
-            # this function picks value in such a way that most of the time we pick the value with highest probability
-            # but to generate different outputs for same input it also generates different values for the input
-            idx_next = torch.multinomial(probs, num_samples=1)
-            # append sampled index to the running sequence and continue
-            idx = torch.cat((idx, idx_next), dim=1)
+
+            for _ in range(max_new_tokens):
+                # forward the model to get the logits for the index in the sequence
+                with torch.no_grad():
+                    logits, _ = self(idx_cond, use_cache = use_cache)
+                # pluck the logits at the final step and scale by desired temperature
+                logits = logits[:, -1, :] / temperature
+                # optionally crop the logits to only the top k options
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+                # apply softmax to convert logits to (normalized) probabilities
+                probs = F.softmax(logits, dim=-1)
+                idx_next = torch.multinomial(probs, num_samples=1)
+                # append sampled index to the running sequence and continue
+                idx = torch.cat((idx, idx_next), dim=1)
+                idx_cond = idx_next
+
+        else :
+            for _ in range(max_new_tokens):
+                # if the sequence context is growing too long we must crop it at block_size
+                idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+                # forward the model to get the logits for the index in the sequence
+                logits, _ = self(idx_cond)
+                # pluck the logits at the final step and scale by desired temperature
+                logits = logits[:, -1, :] / temperature
+                # optionally crop the logits to only the top k options
+                if top_k is not None:
+                    v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
+                    logits[logits < v[:, [-1]]] = -float('Inf')
+                # apply softmax to convert logits to (normalized) probabilities
+                probs = F.softmax(logits, dim=-1)
+                # sample from the distribution
+                # multinomial is the generalization of binomial distribution
+                # this function picks value in such a way that most of the time we pick the value with highest probability
+                # but to generate different outputs for same input it also generates different values for the input
+                idx_next = torch.multinomial(probs, num_samples=1)
+                # append sampled index to the running sequence and continue
+                idx = torch.cat((idx, idx_next), dim=1)
 
         return idx
     
 if __name__ == "__main__":
     print("testing the model")
-
-    # The file contains the complete gpt2 architecture
-
-    # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
-    input = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0]) #use float.32
-    layernorm = LayerNorm(5,True)
-    output_norm = layernorm(input)
-    # print("output normalization tensor:", output_norm)
-    mean_norm = output_norm.mean(dim=-1,keepdim=True)
-    var_norm = output_norm.var(dim=-1,keepdim=True) # variance calculation uses bessels correction variance is divided by n-1 rather than n
-    # print("mean after norm:",mean_norm)
-    # print("var after norm:",var_norm)
-
-    # class CausalSelfAttention to mask the tokens of the future we will only be using the tokens appearing before the current position
-    gptConfig = GPTConfig()
-    attention = CausalSelfAttention(gptConfig)
-    batch = torch.randn(2, 8, 768)
-    # print("batch shape:", batch.shape)
-    context_vector = attention(batch)
-    # print("context_vector shape:", context_vector.shape)
-    # print("context_vector:", context_vector)
-
-    # class MLP is the feed forward network
-    # we take the context vector and pass to the feed - forward network
-    ffn = MLP(gptConfig)
-    ffn_output = ffn(context_vector)
-    # print("ffn shape", ffn_output.shape)
-    # print("ffn value", ffn_output)
-
-    # class Block is the transformer block with all the components of a transformer
-    trf_block = Block(gptConfig)
-    transformer_output = trf_block(batch)
-    # print("transformer output shape:", transformer_output.shape)
-    # print("1 transformer output:", transformer_output)
-    # class GPT(nn.Module) is the main class of initializing a model
 
     input_text = "capital of india is"
 
@@ -414,14 +440,14 @@ if __name__ == "__main__":
     model = GPT.from_pretrained("gpt2")
     max_new_tokens = 1000
     start_time = time.time()
-    output_tokens = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1)
+    output_tokens = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= True)
     end_time = time.time()
     print("output tokens:", output_tokens)
     output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
     print("output text:", output_text)
     total_time = end_time - start_time
     total_tokens_sec = max_new_tokens / total_time
-    print("tokens generated per sec without KV cache:", total_tokens_sec)
+    print("tokens generated per sec using KV cache:", total_tokens_sec)
 
     
 
