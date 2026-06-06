@@ -19,10 +19,9 @@ class CausalSelfAttention(nn.Module):
         # key, query, value projections for all heads, but in a batch
         # good practice to calculate the matrix multiplication in 1 go instead of 3 different matrix
         self.q_attn = nn.Linear(config.n_embd, config.n_embd , bias=config.bias) 
+        self.head_dim = config.n_embd // config.n_head
         self.n_kv_head = config.n_kv_head
-        self.n_rep = config.n_head // config.n_kv_head
-        self.kv_dim = config.n_embd // self.n_rep
-        self.kv_attn = nn.Linear(config.n_embd, 2 * self.kv_dim, bias = config.bias)
+        self.kv_attn = nn.Linear(config.n_embd, 2 * self.head_dim * self.n_kv_head, bias = config.bias)
         # output projection
         self.c_proj = nn.Linear(config.n_embd, config.n_embd, bias=config.bias)
         # regularization
@@ -47,17 +46,17 @@ class CausalSelfAttention(nn.Module):
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         # (B, T, C) @ (C , C) => (B, T, C)
         q  = self.q_attn(x)
-        k, v  = self.kv_attn(x).split(self.kv_dim, dim=2) 
+        k, v  = self.kv_attn(x).split((self.head_dim * self.n_kv_head), dim=2) 
         print(f"q.shape: {q.shape}, v.shape: {v.shape}, k.shape: {k.shape}")
 
         # view to look at data in new format rather than copying to new memory
-        q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # (B, nh, T, hs)
+        q = q.view(B, T, self.n_head, self.head_dim).transpose(1, 2) # (B, nh, T, hs)
         print(f"q.shape: {q.shape}")
-        k = k.view(B, T, self.n_kv_head, self.kv_dim // self.n_kv_head) # (B, T, KVH, kvhs)
+        k = k.view(B, T, self.n_kv_head, self.head_dim) # (B, T, KVH, kvhs)
         print(f"k.shape: {k.shape}")
         k = repeat_kv(k, self.n_head // self.n_kv_head).transpose(1,2)
         print(f"k.shape after repeat: {k.shape}")
-        v = v.view(B, T, self.n_kv_head, self.kv_dim // self.n_kv_head) # (B, T, KVH, kvhs)
+        v = v.view(B, T, self.n_kv_head, self.head_dim) # (B, T, KVH, kvhs)
         print(f"v.shape: {v.shape}")
         v = repeat_kv(v, self.n_head // self.n_kv_head).transpose(1,2)
         print(f"v.shape after repeat: {v.shape}")

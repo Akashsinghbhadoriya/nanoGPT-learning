@@ -1,0 +1,79 @@
+[
+    {
+        "token_generated": 10,
+        "tokens_per_sec": 103.74211293071251,
+        "total_time": 0.09639286994934082,
+        "memory": 0.328125,
+        "latency": 9.053897857666016
+    },
+    {
+        "token_generated": 60,
+        "tokens_per_sec": 114.51779643393293,
+        "total_time": 0.5239360332489014,
+        "memory": 1.5,
+        "latency": 8.168399333953857
+    },
+    {
+        "token_generated": 110,
+        "tokens_per_sec": 115.32407204894982,
+        "total_time": 0.953833818435669,
+        "memory": 2.671875,
+        "latency": 8.124999566511676
+    },
+    {
+        "token_generated": 160,
+        "tokens_per_sec": 113.8027832721491,
+        "total_time": 1.4059410095214844,
+        "memory": 3.84375,
+        "latency": 8.241261541843414
+    },
+    {
+        "token_generated": 210,
+        "tokens_per_sec": 112.30182028115112,
+        "total_time": 1.8699607849121094,
+        "memory": 5.015625,
+        "latency": 8.357774643670945
+    },
+    {
+        "token_generated": 260,
+        "tokens_per_sec": 110.6607115567544,
+        "total_time": 2.3495240211486816,
+        "memory": 6.1875,
+        "latency": 8.486314920278696
+    },
+    {
+        "token_generated": 310,
+        "tokens_per_sec": 110.53612604969149,
+        "total_time": 2.8045129776000977,
+        "memory": 7.359375,
+        "latency": 8.501639673786778
+    },
+    {
+        "token_generated": 360,
+        "tokens_per_sec": 106.24675417611222,
+        "total_time": 3.388338804244995,
+        "memory": 8.53125,
+        "latency": 8.852156003316242
+    },
+    {
+        "token_generated": 410,
+        "tokens_per_sec": 103.34820575664408,
+        "total_time": 3.9671709537506104,
+        "memory": 9.703125,
+        "latency": 9.100345867436106
+    },
+    {
+        "token_generated": 460,
+        "tokens_per_sec": 100.8576407805775,
+        "total_time": 4.56088399887085,
+        "memory": 10.875,
+        "latency": 9.314080943231996
+    },
+    {
+        "token_generated": 510,
+        "tokens_per_sec": 105.36092566912544,
+        "total_time": 4.840504169464111,
+        "memory": 12.046875,
+        "latency": 8.923726923325482
+    }
+]

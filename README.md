@@ -46,7 +46,7 @@ Planned implementations:
 * [x] Rotary Position Embeddings (RoPE)
 * [x] RMSNorm
 * [x] KV Cache
-* [ ] Grouped Query Attention (GQA)
+* [x] Grouped Query Attention (GQA)
 * [ ] SwiGLU
 * [ ] Multi Query Attention (MQA)
 * [ ] Quantization Experiments
@@ -95,98 +95,65 @@ nanogpt-learning/
 
 ├── benchmarks/
 
-└── nanogpt-source/
+└── llm/
+│   ├── model.py
+│   └── readme.md
+```
+# Modern GPT Implementation
+
+A progressively enhanced GPT implementation built from scratch in PyTorch, incorporating several techniques used in modern Large Language Models. Check the file llm/model.py
+
+## Implemented Features
+
+### Core Transformer
+
+* Token Embeddings
+* Positional Information
+* Multi-Head Self-Attention
+* Feed Forward Network (MLP)
+* Residual Connections
+* Causal Masking
+
+### Modern LLM Improvements
+
+* Rotary Positional Embeddings (RoPE)
+* RMSNorm
+* KV Cache for autoregressive inference
+* Grouped Query Attention (GQA)
+
+## Architecture
+
+The implementation follows a modular design within a single `model.py` file, allowing features to be enabled or disabled through configuration.
+
+```text
+Input
+  ↓
+Token Embeddings
+  ↓
+Transformer Block
+    ├── RMSNorm
+    ├── GQA / MHA
+    ├── RoPE
+    ├── KV Cache
+    ├── Attention
+    └── MLP
+  ↓
+Output Projection
 ```
 
----
+## Attention Pipeline
 
-# Model.py Study Progress
-
-## Components Completed
-
-### LayerNorm
-
-Topics covered:
-
-* Purpose of normalization
-* Mean and variance computation
-* Learnable scale and bias parameters
-* Pre-LayerNorm architecture
-
-Notes:
-
-`notes/layernorm.md`
-
----
-
-### Causal Self Attention
-
-Topics covered:
-
-* Query / Key / Value generation
-* Multi-head attention
-* Causal masking
-* Scaled dot-product attention
-* Tensor transformations
-
-Notes:
-
-`notes/causal-self-attention.md`
-
----
-
-### MLP Block
-
-Topics covered:
-
-* Feed-forward networks
-* Expansion ratio
-* GELU activation
-* Projection layers
-
-Notes:
-
-`notes/mlp.md`
-
----
-
-# Future Papers
-
-## Completed
-
-* Attention Is All You Need
-* Build a Large Language Model From Scratch
-
-## Planned
-
-### Transformer Architecture
-
-* RoFormer
-* FlashAttention
-* GQA
-* MQA
-
-### Fine-Tuning
-
-* LoRA
-* QLoRA
-
-### Alignment
-
-* DPO
-* InstructGPT
-
----
-
-# Key Learning Principle
-
-For every topic:
-
-1. Read the paper
-2. Read the implementation
-3. Reimplement the idea
-4. Benchmark results
-5. Document learnings
-6. Publish findings
-
-The goal is to build systems-level understanding rather than passive familiarity.
+```text
+QKV Projection
+      ↓
+RoPE
+      ↓
+KV Cache Update
+      ↓
+GQA KV Expansion
+      ↓
+Scaled Dot Product Attention
+      ↓
+Output Projection
+```
+```
