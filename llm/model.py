@@ -258,6 +258,25 @@ class MLP(nn.Module):
         return x
 
 # =====================
+# SwiGLU
+# =====================    
+class SwiGLU(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        
+        self.w1 = nn.Linear(config.n_embd, config.hidden_dim, bias = config.bias)
+        self.w2 = nn.Linear(config.n_embd, config.hidden_dim, bias = config.bias)
+        self.w3 = nn.Linear(config.hidden_dim, config.n_embd, bias = config.bias)
+
+    def forward(self, x):
+        gate = F.silu(self.w1(x)) # (B, T, C) * (C, HD) -> (B, T, HD)
+        value = self.w2(x) # (B, T, C) * (C, HD) -> (B, T, HD)
+
+        x = self.w3(gate * value) # (B, T, HD) * (HD, C) -> (B, T, C)
+        return x
+
+# =====================
 # Transformer block
 # =====================
 class Block(nn.Module):
@@ -272,7 +291,10 @@ class Block(nn.Module):
             self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
 
         self.attn = CausalSelfAttention(config)
-        self.mlp = MLP(config)
+        if config.use_swiglu:
+            self.mlp = SwiGLU(config)
+        else:
+            self.mlp = MLP(config)
 
     def reset_cache(self):
         self.attn.reset_cache()
@@ -313,9 +335,11 @@ class ModelConfig:
     use_kvcache: bool
     use_rmsnorm: bool
     use_gqa: bool
+    use_swiglu: bool
     base: int
     p: float #used for partial rms norm
     eps: float
+    hidden_dim: int
 
 # =====================
 # GPT Model
@@ -586,7 +610,7 @@ if __name__=="__main__":
         vocab_size=50304,
         n_layer=12,
         n_head=12,
-        n_kv_head=4,
+        n_kv_head=1,
         n_embd=768,
         dropout=0.0,
         bias=True,
@@ -594,6 +618,8 @@ if __name__=="__main__":
         use_kvcache=True,
         use_rmsnorm=True,
         use_gqa=True,
+        use_swiglu=False,
+        hidden_dim=2048,
         base=10000,
         p=-1,
         eps=1e-8
@@ -621,5 +647,5 @@ if __name__=="__main__":
         print(f"tokens per sec is : {total_tokens_sec}")
         benchmark_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
     
-    # with open("benchmark_results_kv.json", "w") as file:
-    #     json.dump(benchmark_kv, file, indent=4)
+    with open("MQA_benchmark_results_kv.json", "w") as file:
+        json.dump(benchmark_kv, file, indent=4)

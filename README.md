@@ -47,8 +47,8 @@ Planned implementations:
 * [x] RMSNorm
 * [x] KV Cache
 * [x] Grouped Query Attention (GQA)
-* [ ] SwiGLU
-* [ ] Multi Query Attention (MQA)
+* [x] SwiGLU
+* [x] Multi Query Attention (MQA)
 * [ ] Quantization Experiments
 * [ ] Flash Attention Integration
 
