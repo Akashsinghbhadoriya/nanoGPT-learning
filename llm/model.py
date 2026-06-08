@@ -305,9 +305,6 @@ class Block(nn.Module):
         x = x + self.mlp(self.ln_2(x))
         return x
 
-# =====================
-# GPT Config
-# =====================
 @dataclass
 class GPTConfig:
     block_size: int = 1024
@@ -317,29 +314,6 @@ class GPTConfig:
     n_embd: int = 768
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
-
-# =====================
-# Model Config
-# =====================
-@dataclass
-class ModelConfig:
-    block_size: int
-    vocab_size: int
-    n_layer: int
-    n_head: int
-    n_kv_head: int 
-    n_embd: int
-    dropout: float
-    bias: bool
-    use_rope: bool
-    use_kvcache: bool
-    use_rmsnorm: bool
-    use_gqa: bool
-    use_swiglu: bool
-    base: int
-    p: float #used for partial rms norm
-    eps: float
-    hidden_dim: int
 
 # =====================
 # GPT Model
@@ -601,51 +575,3 @@ class GPT(nn.Module):
             memory = self.memory_usage_kv_cache()
 
         return idx, memory, sum(times) / len(times)
-
-    
-if __name__=="__main__":
-
-    config = ModelConfig(
-        block_size=1024,
-        vocab_size=50304,
-        n_layer=12,
-        n_head=12,
-        n_kv_head=1,
-        n_embd=768,
-        dropout=0.0,
-        bias=True,
-        use_rope=True,
-        use_kvcache=True,
-        use_rmsnorm=True,
-        use_gqa=True,
-        use_swiglu=False,
-        hidden_dim=2048,
-        base=10000,
-        p=-1,
-        eps=1e-8
-    )
-    input_text = "capital of india is"
-
-    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    input_token_ids = tokenizer.encode(input_text, return_tensors="pt")
-    print("input tokens:", input_token_ids)
-
-    model = GPT(config)
-
-    benchmark_kv = []
-    for x in range(10, 511, 50):
-        print(f"Generating for max new tokens:{x}")
-        max_new_tokens = x
-        start_time = time.time()
-        output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1)
-        end_time = time.time()
-        latency = latency * 1000 #converting to ms
-        output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
-        total_time = end_time - start_time
-        print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
-        total_tokens_sec = max_new_tokens / total_time
-        print(f"tokens per sec is : {total_tokens_sec}")
-        benchmark_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
-    
-    with open("MQA_benchmark_results_kv.json", "w") as file:
-        json.dump(benchmark_kv, file, indent=4)

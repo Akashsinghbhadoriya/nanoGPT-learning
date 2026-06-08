@@ -86,7 +86,7 @@ Every weight introduces error. Millions of weight create accuracy degradation an
 
 #### Types of Quantization
 
-1. INT8 Quantization -> It is a post training quantization it reduces the memory requirements by a factor of 4 by using 8 bits only but the inference time increases because we have an additional dequantized step. So Quantization alone does not make inference faster we need INT8 kernels which make inference faster.
+1. INT8 Quantization -> It is a post training quantization it reduces the memory requirements by a factor of 4 by using 8 bits only but the inference time increases because we have an additional dequantized step. So Quantization alone does not make inference faster we need INT8 kernels which make inference faster. This is also called per tensor quantization where a single scale must fit every neuron.
 ```
 INT8 Weights
       ↓
@@ -106,3 +106,13 @@ INT8 GEMM
       ↓
 Output
 ```
+
+Limitations:
+- suppose the weight matrix is then scale = 15.7/127 = 0.1236 so for 1st row 0.1/0.1236 = 0.8 ~ 1 fpr 2nd row 15.7/0.1236 = 127 so the 2nd row scales properly but not the 2nd ones very poor precision for the 1st row.
+```
+W = [[0.1, 0.2, -0.3],
+    [12.5, -8.4, 15.7]]
+```
+- different neurons have very different weight distribution so we need to use different scales for different neurons
+
+2. Per-Channel Quantization-> This solves the problem of using a single scale for all the neurons instead use different scale for different neurons. So every neuron gets maximum precision.
