@@ -2,6 +2,7 @@
 
 Quantization is the process of converting high precision numbers into lower precision numbers.
 
+
 | Format | Bits |
 | ------ | ---- |
 | FP32   | 32   |
@@ -122,6 +123,28 @@ W = [[0.1, 0.2, -0.3],
 channels above the threshold use FP16
 `abs(x) > threshold, threshold = 6 or 8`
 Only activations were FP16 because weights behave nicely but activations create the real problem
+
+Channel for an activation x is the column or the hidden dimensions(128, 768) so their are 768 channels in the activations for the weight the channel means each output neuron which is W(3072, 768)(out, in) here a(hidden dim)== w(in) so we take out the outlier activation channel and the similar column from the weight for multiplication spearately.
+
+Both are mathematically identical
+```
+Y = X_normal @ W_normal.T + X_outlier @ W_outlier.T
+Y = X @ W.T
+
+Example:
+
+X = [x0,x1,x2,x3]
+W = [w0,w1,w2,w3]
+
+X @ W.T = x0*w0 + x1*w1 + x2*w2 + x3*w3
+
+x_norm = [x0,x1,x2]
+w_norm = [w0,w1,w2]
+x_out = [x3]
+w_out = [w3]
+
+y_norm + y_out = x0*w0 + x1*w1 + x2*w2 + x3*w3
+```
 
 4. SmoothQuant(W8A8) -> It is a Post training quantization technique used to quantize the weights as well as activations with INT8 which becomes W8A8 quantization this increases the inference on larger models by 1.5x and reduces the memory requirements by 2x. Since quanitzation becomes difficult for models larger than 6.7B parameters where a small percentage of outliers can decrease the accuracy of the model during inference. These outliers make activation quantization difficult. The outliers in activation are 100x the size of the other activation values. We can use per channel quantization which handles outliers much better in the channels which contain these outliers also the accuracy is much better than per-tensor quantization we could use per-token quantization but it helps little over per-channel tokenization. But the per-channel tokenization has a limitation that it does not map well with hardware accelerated GEMM kernels that rely on sequence of operations executed at high throughput. In those kernels scaling can only be performed along the outer dimensions of the matrix multiplication. So instead of per-channel activation quantization we "smooth" the input activation by dividing it by per-channel smoothing factor to keep the mathematical equivalence of linear layer we scale the weights accordingly in the reversed direction.
 

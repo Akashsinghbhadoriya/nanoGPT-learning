@@ -87,6 +87,68 @@ class MixedPrecisionQuantization:
             return y_norm + y_out
         
         return x_out @ w_out.T
+    
+# =========================================================
+# SmoothQuant for smoothing the input and the weights
+# =========================================================
+class SmoothQuantLinear:
+    def __init__(self, x, w, alpha):
+        if alpha < 0 or alpha > 1:
+            raise ValueError("alpha should be between the range [0,1]")
+        self.x = x
+        self.w = w
+        self.alpha = alpha
+
+    def forward(self):
+        w, x = self.wx_smooth()
+        sq = SmoothQuantChannel(w, x)
+        return sq.dequantize_int8()
+
+    def wx_smooth(self):
+        sf = self.smoothfactor()
+        x = self.x / sf
+        w = self.w * sf
+
+        return w, x
+
+    def smoothfactor(self):
+        x_max = self.x.abs().max(dim=0)[0]
+        w_max = self.w.abs().max(dim=0)[0]
+
+        sf = x_max.pow(self.alpha) / w_max.pow(1 - self.alpha)
+        return sf
+    
+# =========================================================
+# SmoothQuant for calculating the INT8 Quantization for weight and activations
+# =========================================================
+class SmoothQuantChannel:
+    def __init__(self, w, x):
+        self.weight_q, self.w_scale = self.quantize_weight_int8(w)
+        self.x_q, self.x_scale = self.quantize_x_int8(x)
+
+    def dequantize_int8(self):
+        w = self.weight_q.float() * self.w_scale
+        x = self.x_q.float() * self.x_scale
+        
+        return x @ w.T
+
+    def quantize_weight_int8(self, w):
+        max_val = w.abs().max(dim=1,keepdim=True)[0]
+
+        w_scale = max_val / 127
+        
+        weight_q = torch.round( w / w_scale).to(torch.int8)
+
+        return weight_q, w_scale
+    
+    def quantize_x_int8(self, x):
+        max_val = x.abs().max()
+
+        x_scale = max_val / 127
+        
+        x_q = torch.round( x / x_scale).to(torch.int8)
+
+        return x_q, x_scale
 
 def calculate_quantization(x, W, layer):
     y = x @ W
@@ -134,18 +196,22 @@ def calculate_mixed_precision(x, W, layer):
     
     return torch.mean(y-y_int8) ** 2
 
+def calculate_smooth_quant(x, w, alpha = 0.5):
+    smoothquant = SmoothQuantLinear(x,w,alpha)
+
+    w_smooth, x_smooth = smoothquant.wx_smooth()
+    y_q = smoothquant.forward()
+    y_smooth = x_smooth @ w_smooth.T
+    y = x @ w.T
+
+    print(f"mse after smoothing:", torch.mean(y - y_smooth) ** 2)
+    print(f"mse after quantization:", torch.mean(y - y_q) ** 2)
+
+
 if __name__ == "__main__":
 
     hidden_dim = 768
     x = torch.randn(128, hidden_dim)
     w = torch.randn(3072, hidden_dim)
-    x[0][0] = 20
-    x[0][10] = 100
-    th = 10.0
-    layer = MixedPrecisionQuantization(w, th, x)
-    mse = calculate_mixed_precision(x, w, layer)
-    print("int8.() mse:",mse)
-
-    layer1 = QuantizedChannel_INT8(w)
-    mse1 = calculate_quantization_channel(x,w,layer1)
-    print("Per-channel Quantization:", mse1)
+    calculate_smooth_quant(x, w)
+    
