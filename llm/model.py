@@ -424,7 +424,7 @@ class GPT(nn.Module):
                 block.attn.bias = block.attn.bias[:,:,:block_size,:block_size] # reduce the bias size for mask filling to fit the new context length
 
     @classmethod
-    def from_pretrained(cls, model_type, override_args=None):
+    def from_pretrained(cls, model_type, config, override_args=None):
         assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
         override_args = override_args or {} # default to empty dict
         # only dropout can be overridden see more notes below
@@ -448,7 +448,7 @@ class GPT(nn.Module):
             print(f"overriding dropout rate to {override_args['dropout']}")
             config_args['dropout'] = override_args['dropout']
         # create a from-scratch initialized minGPT model
-        config = GPTConfig(**config_args)
+        #config = GPTConfig(**config_args)
         model = GPT(config)
         sd = model.state_dict()
         sd_keys = sd.keys()

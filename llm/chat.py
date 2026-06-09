@@ -35,7 +35,11 @@ def main(config_path: Path, max_new_tokens: int = 50, temperature: float = 0.9, 
 
     print(f"config: {config}")
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
-    model = GPT(config)
+
+    if "gpt" in config.name.lower():
+        model = GPT.from_pretrained("gpt2", config)
+    else:
+        model = GPT(config)
 
     interact(model, config, tokenizer, max_new_tokens, temperature, top_k)
 

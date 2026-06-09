@@ -83,3 +83,10 @@ gqa: true
 ## Purpose
 
 The goal of this repository is not only to reproduce transformer architectures from scratch, but also to progressively evolve the codebase toward a modular, configurable, and production-inspired LLM framework while maintaining educational clarity.
+# Future Scope
+
+1. Adding train.py for training model based on different config and datasets.
+2. Adding top-p in the generate function.
+3. Streaming output tokens one by one.
+4. Adding a UI based chat to chat with models.
+5. Building the Visualizer for the Transformer architecture.
