@@ -18,9 +18,12 @@ class TokenDataset(Dataset):
 
         return x, y
 
-def build_dataloader(config, data_dir, train_args):
+def build_dataloader(config, data_dir, train_args, type):
 
-    tokens = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
+    if type == "train":
+        tokens = np.memmap(os.path.join(data_dir, 'train.bin'), dtype=np.uint16, mode='r')
+    elif type == "val":
+        tokens = np.memmap(os.path.join(data_dir, 'val.bin'), dtype=np.uint16, mode='r')
 
     dataset = TokenDataset(
         tokens = tokens,

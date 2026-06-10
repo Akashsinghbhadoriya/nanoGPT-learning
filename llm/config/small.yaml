@@ -1,3 +1,4 @@
+name: gpt2-enhanced
 block_size: 1024
 vocab_size: 50304
 n_layer: 12
@@ -7,7 +8,7 @@ n_embd: 768
 dropout: 0.0
 bias: True
 use_rope: True
-use_kvcache: True
+use_kvcache: False
 use_rmsnorm: True
 use_gqa: True
 use_swiglu: False

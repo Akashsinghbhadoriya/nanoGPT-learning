@@ -49,7 +49,7 @@ A modular transformer implementation inspired by nanoGPT, built to understand an
 ├── cli.py
 ├── model.py
 ├── chat.py
-├── configs/
+├── config/
 │   ├── small.yaml
 │   └── ...
 ├── checkpoints/
@@ -62,7 +62,7 @@ A modular transformer implementation inspired by nanoGPT, built to understand an
 ### Chat
 
 ```bash
-python cli.py chat configs/small.yaml
+python cli.py chat config/small.yaml
 ```
 
 ### Configuration Example

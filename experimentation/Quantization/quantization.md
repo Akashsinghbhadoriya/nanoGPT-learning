@@ -159,3 +159,5 @@ Therefore we need to split the quantization difficulty between weights and activ
 
 $$s_{j} = \frac{max(|X_{j}|)^\alpha}{max(|W_{j}|)^(1-\alpha)}$$
 Most of the models opt $\alpha = 0.5$
+
+5. INT4 quantization :- In this quanitzation we do scaling from the range [-8,7] which represent only 4 bits and gives a 4x reduction than FP16 also we do packing of 2 INT4 numbers into one INT8 for calculation by bit shifting

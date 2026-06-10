@@ -48,7 +48,8 @@ class TrainArgs:
     lr_decay_iters: int
     min_lr: float
     device: str
-    train_ratio: float
+    num_workers: int
+    batch_size: int
 
     @classmethod
     def load_config(cls, train_config_path: Path):

@@ -18,13 +18,14 @@ from transformers import GPT2Tokenizer
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from wonly_int4 import WeightonlyINT4Linear
  
 class QuantizedLinear(nn.Module):
     def __init__(self, linear):
         super().__init__()
 
         W = linear.weight.data
-
+        
         max_vals = W.abs().max(dim=1, keepdim=True)[0]
 
         scales = torch.clamp(max_vals / 127, min=1e-8)
@@ -89,7 +90,7 @@ def quantize_model(module):
 
         if isinstance(child, nn.Linear):
 
-            setattr(module, name, QuantizedLinear(child))
+            setattr(module, name, WeightonlyINT4Linear(child))
 
         else:
             quantize_model(child)
