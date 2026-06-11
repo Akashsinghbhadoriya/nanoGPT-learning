@@ -160,4 +160,4 @@ Therefore we need to split the quantization difficulty between weights and activ
 $$s_{j} = \frac{max(|X_{j}|)^\alpha}{max(|W_{j}|)^(1-\alpha)}$$
 Most of the models opt $\alpha = 0.5$
 
-5. INT4 quantization :- In this quanitzation we do scaling from the range [-8,7] which represent only 4 bits and gives a 4x reduction than FP16 also we do packing of 2 INT4 numbers into one INT8 for calculation by bit shifting
+5. INT4 quantization :- In this quanitzation we do scaling from the range [-8,7] which represent only 4 bits and gives a 4x reduction than FP16 also we do packing of 2 INT4 numbers into one INT8 for calculation by bit shifting. While doing int4 quantization we got an issue where the agreement was 0 and mse was around 191 then we ran a diagnostic on all the layers of the gpt2 one by one layer and the issue was cause by lm_head so we did not quantize this linear layer and after this that mse went down and the agreement was 1

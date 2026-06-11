@@ -18,7 +18,7 @@ from transformers import GPT2Tokenizer
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-from wonly_int4 import WeightonlyINT4Linear
+from wonly_int4 import WeightonlyINT4Linear, GroupwiseINT4Linear
  
 class QuantizedLinear(nn.Module):
     def __init__(self, linear):
@@ -90,7 +90,10 @@ def quantize_model(module):
 
         if isinstance(child, nn.Linear):
 
-            setattr(module, name, WeightonlyINT4Linear(child))
+            if name == "lm_head":
+                continue
+
+            setattr(module, name, GroupwiseINT4Linear(child))
 
         else:
             quantize_model(child)
@@ -98,9 +101,7 @@ def quantize_model(module):
     
     return module
 
-
-if __name__=="__main__":
-    
+def evaluate_quantized_model():
     config = GPTConfig
     model = GPT.from_pretrained("gpt2")
     # torch.save(model.state_dict(), "gpt2.pt"
@@ -139,6 +140,19 @@ if __name__=="__main__":
     print("mse:",mse)
     print("rmse:",rmse)
 
+    cos = F.cosine_similarity(
+        gpt_logits.flatten(),
+        quant_gpt_logits.flatten(),
+        dim=0
+    )
+
+    relative_error = (
+        (gpt_logits - quant_gpt_logits).abs().mean()
+        /
+        gpt_logits.abs().mean()
+    )
+    print("cosine:", cos)
+    print("relative error:", relative_error)
 
     # torch.save(quant_model.state_dict(), "gpt2_int8.pt")
     if os.path.isfile("gpt2.pt"):
@@ -155,3 +169,7 @@ if __name__=="__main__":
             ) / 1024**2
         )
 
+
+if __name__=="__main__":
+    
+    evaluate_quantized_model()
