@@ -1,9 +1,10 @@
 import torch
 import math
+import os
 
 class Trainer:
 
-    def __init__(self, model, optimizer, train_loader, val_loader, train_args, device):
+    def __init__(self, model, config, optimizer, train_loader, val_loader, train_args, device):
         
         self.model = model
         self.optimizer = optimizer
@@ -11,6 +12,7 @@ class Trainer:
         self.val_loader = val_loader
         self.train_args = train_args
         self.device = device
+        self.config = config
 
         self.model.to(self.device)
 
@@ -19,6 +21,7 @@ class Trainer:
         self.model.train()
 
         step = 0
+        best_val_loss = 1e9
         data_iter = iter(self.train_loader)
         while step < self.train_args.max_iters:
 
@@ -26,9 +29,13 @@ class Trainer:
             for param_group in self.optimizer.param_groups:
                 param_group['lr'] = lr
 
-            if step % self.train_args.eval_interval == 0:
+            if step % self.train_args.eval_interval == 0 and step > 0:
                 losses = self.estimate_loss()
                 print(f"step {step}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+                is_best_loss = losses['val'] < best_val_loss
+                if is_best_loss:
+                    best_val_loss = losses['val']
+                self.add_checkpoint(step, best_val_loss)
 
             try:
                 x, y = next(data_iter)
@@ -52,6 +59,21 @@ class Trainer:
                 print(f"step:{step}, train loss:{loss.item():.4f}")
 
             step+=1
+
+    def add_checkpoint(self, step, best_val_loss):
+        checkpoint = {
+            'model': self.model.state_dict(),
+            'optimizer': self.optimizer.state_dict(),
+            'train_args': self.train_args,
+            'iter_num': step,
+            'best_val_loss': best_val_loss,
+            'config': self.config,
+        }
+
+        out_dir = os.path.join(self.train_args.out_dir, self.config.name)
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"saving checkpoint to {out_dir}")
+        torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
 
     def get_lr(self, step):
 

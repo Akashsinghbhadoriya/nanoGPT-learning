@@ -160,4 +160,71 @@ Therefore we need to split the quantization difficulty between weights and activ
 $$s_{j} = \frac{max(|X_{j}|)^\alpha}{max(|W_{j}|)^(1-\alpha)}$$
 Most of the models opt $\alpha = 0.5$
 
-5. INT4 quantization :- In this quanitzation we do scaling from the range [-8,7] which represent only 4 bits and gives a 4x reduction than FP16 also we do packing of 2 INT4 numbers into one INT8 for calculation by bit shifting. While doing int4 quantization we got an issue where the agreement was 0 and mse was around 191 then we ran a diagnostic on all the layers of the gpt2 one by one layer and the issue was cause by lm_head so we did not quantize this linear layer and after this that mse went down and the agreement was 1
+5. INT4 quantization :- In this quanitzation we do scaling from the range [-8,7] which represent only 4 bits and gives a 4x reduction than FP16 also we do packing of 2 INT4 numbers into one INT8 for calculation by bit shifting. While doing int4 quantization we got an issue where the agreement was 0 and mse was around 191 then we ran a diagnostic on all the layers of the gpt2 one by one layer and the issue was cause by lm_head so we did not quantize this linear layer and after this that mse went down and the agreement was 1.
+
+6. GPTQ -> Accurate Post-Training Quantization for Generative pre-trained transformers. The core contribution of the paper is a one-shot post-training quanitzation method that uses approximate second order(Hessian) information to quantize 3-bit and 4-bit LLMs with very small accuracy loss. This method exist to improve upon the INT4 implementation. GPTQ asks which weight errors actually matter for the model outputs. In previous techniques small errors accumulate to become very large logit error.
+
+What GPTQ does is a mistake in a particular weight is compensated somewhere else\
+Original -> [1.7, 2.4]\
+INT4 Quantization -> [2.0, 2.0] \
+Error -> [+0.3, -0.4]\
+Naive INT4 stops here.\
+GPTQ says: Weight 1 became larger by 0.3. Let's slightly modify Weight 2 to compensate.\
+GPTQ output -> [2.0, 2.3]
+
+Why do we need activations:\
+Consider -> Weight A = 1.5, Weight B = 1.5\
+Looks equally important.
+
+Now look at activations:\
+Input A = 100\
+Input B = 0.01
+
+Output:\
+100 * 1.5 + 0.01 * 1.5
+
+Clearly:\
+Weight A matters a lot\
+Weight B barely matters
+
+GPTQ discovers this automatically.
+
+#### The Hessian Intuition
+
+For GPTQ:\
+Hessian = Importance Matrix\
+Large value: Don't touch this weight.\
+Small value: You can quantize aggressively.
+
+#### Difference Between INT4 and GPTQ
+
+INT4:
+```
+for each weight:
+    quantize(weight)
+```
+
+GPTQ:
+```
+for each weight:
+    quantize(weight)
+    measure error
+    compensate future weights
+```
+
+```
+Since GPTQ minimizes the error of each layer which is ||XW - XWq||²
+This becomes: (W - Wq)^T H (W - Wq)
+H = X^T X
+H = approximation to hessian
+GPTQ uses inv(H) how sensitive each weight is
+```
+$$||A||^2 = A^T A$$
+$$||XW - XWq||^2 = ||X(W-Wq)||^2 = [X(W-Wq)]^T [X(W-Wq)]$$
+$$[X(W-Wq)]^T [X(W-Wq)] = (W-Wq)^T X^T X (W-Wq)$$
+$$(W-Wq)^T X^T X (W-Wq) = (W-Wq)^T H (W-Wq)$$
+
+GPTQ Quantizes one column at a time not the whole matrix
+
+We calculate activations for each layer and then quantize its weight then move to the next layer so on
+so each transformer block will have different hessian matrix and weight quantization for each layer in it.

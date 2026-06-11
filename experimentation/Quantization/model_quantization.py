@@ -104,7 +104,7 @@ def quantize_model(module):
 def evaluate_quantized_model():
     config = GPTConfig
     model = GPT.from_pretrained("gpt2")
-    # torch.save(model.state_dict(), "gpt2.pt"
+    # torch.save(model.state_dict(), "gpt2.pt")
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 

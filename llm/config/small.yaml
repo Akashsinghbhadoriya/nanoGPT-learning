@@ -1,4 +1,4 @@
-name: gpt2-enhanced
+name: nano-enhanced
 block_size: 1024
 vocab_size: 50304
 n_layer: 12

@@ -30,7 +30,7 @@ def pretrain(config_path: Path, train_config_path: Path):
 
     optimizer = build_optimizer(model, train_args, device)
 
-    trainer = Trainer(model, optimizer, train_loader, val_loader, train_args, device)
+    trainer = Trainer(model,config , optimizer, train_loader, val_loader, train_args, device)
 
     trainer.fit()
 
