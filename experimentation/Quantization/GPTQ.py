@@ -144,16 +144,53 @@ class GPTQQuantize(nn.Module):
         W = weight_q.float() * self.scales.unsqueeze(0)
         return F.linear(x, W, self.bias)
 
+# compute scale for the AWQ 
+def compute_awq_scale(X, alpha = 0.5):
+
+    importance = X.abs().mean(dim=0)
+
+    scale = importance.pow(alpha)
+
+    scale /= scale.mean()
+
+    return scale
+    
+# AWQ Quantize
+class AWQQuantize(nn.Module):
+    def __init__(self, layer, model, idx):
+        super().__init__()
+
+        X = collect_activations(model, layer, idx)
+        self.awq_scale = compute_awq_scale(X)
+        H_inv = compute_hessian(X)
+        w_q, scale = gptq_quantize(layer.weight.data * self.awq_scale, H_inv)
+        packed = pack_int4(w_q)
+        self.weight_shape = w_q.shape
+        self.register_buffer("packed", packed)
+        self.register_buffer("scales", scale)
+
+        if layer.bias is not None:
+            self.register_buffer("bias", layer.bias.data)
+        else:
+            self.bias = None
+
+    def forward(self, x):
+        weight_q = unpack_int4(self.packed)
+        weight_q = weight_q.view(self.weight_shape)
+        W = weight_q.float() * self.scales.unsqueeze(0)
+        x = x / self.awq_scale
+        return F.linear(x, W, self.bias)
+    
 def quantize_model(module, model, idx):
 
     for name, child in module.named_children():
 
         if isinstance(child, nn.Linear):
 
-            if name == "lm_head":
+            if name == "lm_head": # skipping quantization of lm_head 
                 continue
             print(f"Quantizing layer:{name}")
-            setattr(module, name, GPTQQuantize(child, model, idx))
+            setattr(module, name, AWQQuantize(child, model, idx)) # replace with GPTQQuantize for only GPTQ Quantization
             print(f"Quantization complete layer:{name}")
 
         else:
@@ -162,7 +199,7 @@ def quantize_model(module, model, idx):
 def evaluate_quantized_model():
     config = GPTConfig
     model = GPT.from_pretrained("gpt2")
-    # torch.save(model.state_dict(), "gpt2.pt")
+    torch.save(model.state_dict(), "gpt2.pt")
 
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 

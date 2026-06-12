@@ -238,3 +238,12 @@ INT4 value = stored in int8\
 After packing:\
 2 INT4 values = 1 uint8\
 1 weight      = 0.5 byte
+
+7. AWQ (Activation aware Weight Quantization)-> It focuses on which Activations are important while gptq focuses on which weights are important.\
+error = x @ (W - W_q).T\
+from the above formula weight error alone does not determine the error activations are also important and play a key role in it. Core observation of AWQ is some channels consistently carry larger activations and the idea is to protect those channels by instead of quantizing first rescale the layer. Mathematical trick is below.\
+$$y=(xS^{-1})(SW)$$
+$$S^{-1}S = I$$
+S-> Diagonal matrix
+Scale Weights $$W' = SW$$
+Scale activation $$x' = xS^{-1}$$
