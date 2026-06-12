@@ -228,3 +228,13 @@ GPTQ Quantizes one column at a time not the whole matrix
 
 We calculate activations for each layer and then quantize its weight then move to the next layer so on
 so each transformer block will have different hessian matrix and weight quantization for each layer in it.
+
+#### Weight Packing
+Since GPTQ does INT4 quantization but the weights are stored as INT8 we need to package 2 INT4 into 1 INT8 which can be done by weight packing method.
+Before packing:\
+INT4 value = stored in int8\
+1 weight   = 1 byte
+
+After packing:\
+2 INT4 values = 1 uint8\
+1 weight      = 0.5 byte
