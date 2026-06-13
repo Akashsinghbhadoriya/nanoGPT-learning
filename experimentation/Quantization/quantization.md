@@ -247,3 +247,5 @@ $$S^{-1}S = I$$
 S-> Diagonal matrix
 Scale Weights $$W' = SW$$
 Scale activation $$x' = xS^{-1}$$
+
+8. KV Cache Quantization -> It is an inference time quantization approach which solves the memory problem for storing the KV cache values.

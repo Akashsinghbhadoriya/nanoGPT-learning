@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import json
+from Quantization.GPTQ import pack_int4, unpack_int4
 
 # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
 class LayerNorm(nn.Module):
@@ -23,6 +24,207 @@ class LayerNorm(nn.Module):
 
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5) #uses pytorch function for faster calculation when training models 
+
+# normal KV cache
+class KVCache(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.register_buffer('cache_k', None, persistent = False)
+        self.register_buffer('cache_v', None, persistent = False)
+
+    def reset_cache(self) :
+        self.cache_v = None
+        self.cache_k = None
+
+    def forward(self, k, v):
+        if self.cache_k is None:
+            self.cache_k = k
+            self.cache_v = v
+        else :
+            self.cache_k = torch.cat([self.cache_k, k], dim = 1)
+            self.cache_v = torch.cat([self.cache_v, v], dim = 1)
+        k , v = self.cache_k, self.cache_v
+        return k , v
+    
+# INT8 Quantized KV Cache
+class KVCacheINT8(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+
+        self.cache_v = []
+        self.cache_k = []
+        self.K_scale = []
+        self.V_scale = []
+
+    def reset_cache(self) :
+        self.K_scale = []
+        self.V_scale = []
+        self.cache_v = []
+        self.cache_k = []
+
+    def forward(self, k, v):
+        
+        self.append(k, v)
+
+        return self.get()
+    
+    def append(self, k, v):
+        k_scale = torch.clamp(
+            k.abs().amax(
+                dim=(-1,-2),
+                keepdim=True
+            ) / 127,
+            min=1e-8
+        )
+        v_scale = torch.clamp(
+            v.abs().amax(
+                dim=(-1,-2),
+                keepdim=True
+            ) / 127,
+            min=1e-8
+        )
+
+        k_q = torch.round(k / k_scale).to(torch.int8)
+        v_q = torch.round(v / v_scale).to(torch.int8)
+        self.cache_k.append(k_q)
+        self.cache_v.append(v_q)
+        self.K_scale.append(k_scale)
+        self.V_scale.append(v_scale)
+
+    def get(self):
+
+        K_q = torch.cat(
+            self.cache_k,
+            dim=1
+        )
+
+        V_q = torch.cat(
+            self.cache_v,
+            dim=1
+        )
+        
+        K = (
+            K_q.float()
+            *
+            torch.cat(
+                self.K_scale,
+                dim=1
+            )
+        )
+
+        V = (
+            V_q.float()
+            *
+            torch.cat(
+                self.V_scale,
+                dim=1
+            )
+        )
+
+        return K,V
+    
+# KIVI Quantized KV Cache
+class KIVIQuantization(nn.Module):
+    def __init__(self, group_size = 5):
+        super().__init__()
+
+        self.cache_v = []
+        self.cache_k = []
+        self.K_scale = []
+        self.V_scale = []
+        self.cache_k_residual = []
+        self.cache_v_residual = []
+        self.group_size = group_size
+        self.group_count = 0
+
+    def reset_cache(self):
+        self.K_scale = []
+        self.V_scale = []
+        self.cache_v = []
+        self.cache_k = []
+        self.cache_k_residual = []
+        self.cache_v_residual = []
+        self.group_count = 0
+
+    def forward(self, k, v):
+
+        self.cache_k_residual.append(k)
+        self.cache_v_residual.append(v)
+        self.group_count += k.shape[1]
+        
+        if self.group_count == self.group_size:
+            k_q , scale_k = self.quantize_kivi_keys(torch.cat(self.cache_k_residual, dim=1))
+            v_q, scale_v = self.quantize_kivi_values(torch.cat(self.cache_v_residual, dim=1))
+            self.cache_k_residual = []
+            self.cache_v_residual = []
+            self.group_count = 0
+            self.K_scale.append(scale_k)
+            self.V_scale.append(scale_v)
+            self.cache_k.append(k_q)
+            self.cache_v.append(v_q)
+
+        return self.get()
+    
+    def quantize_kivi_keys(self, k):
+
+        scale = k.abs().amax(dim=1, keepdim=True) / 7
+
+        scale = torch.clamp(scale, min=1e-8) #(B,1,H,D)
+
+        k_q = torch.round(k / scale)
+        k_q = torch.clamp(k_q, -8, 7)
+
+        return k_q.to(torch.int8), scale
+    
+    def quantize_kivi_values(self, v):
+
+        scale = v.abs().amax(dim=(-1,-2), keepdim=True) / 7 #(B,T,1,1)
+
+        scale = torch.clamp(scale, min=1e-8)
+
+        v_q = torch.round(v / scale)
+        v_q = torch.clamp(v_q, -8, 7)
+
+        return v_q.to(torch.int8), scale
+    
+    def get(self):
+
+        if len(self.cache_k) > 0:
+            V_q = torch.cat(
+                self.cache_v,
+                dim=1
+            )
+
+            V_d = (
+                V_q.float()
+                *
+                torch.cat(
+                    self.V_scale,
+                    dim=1
+                )
+            )
+
+        dequantized_groups = []
+        for k_g_group, scale_group in zip(self.cache_k, self.K_scale):
+            k_dequant = k_g_group * scale_group
+            dequantized_groups.append(k_dequant)
+        if len(dequantized_groups) > 0:
+            K_d = torch.cat(dequantized_groups, dim=1)
+
+        if self.group_count > 0 and len(self.cache_k) > 0:
+            k_r = torch.cat(self.cache_k_residual, dim=1)
+            v_r = torch.cat(self.cache_v_residual, dim=1)
+            K = torch.cat((K_d, k_r), dim=1)
+            V = torch.cat((V_d, v_r), dim=1)
+        elif self.group_count > 0 and len(self.cache_k) == 0:
+            K = torch.cat(self.cache_k_residual, dim=1)
+            V = torch.cat(self.cache_v_residual, dim=1)
+        elif self.group_count == 0:
+            K = K_d
+            V = V_d
+
+        return K,V
+
 
 # class CausalSelfAttention to mask the tokens of the future we will only be using the tokens appearing before the current position
 class CausalSelfAttention(nn.Module):
@@ -46,9 +248,7 @@ class CausalSelfAttention(nn.Module):
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
 
-        # register buffer for storing key and value
-        self.register_buffer('cache_k', None, persistent = False)
-        self.register_buffer('cache_v', None, persistent = False)
+        self.kv_cache = KIVIQuantization()
         if not self.flash:
             print("WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0")
             # causal mask to ensure that attention is only applied to the left in the input sequence
@@ -59,8 +259,7 @@ class CausalSelfAttention(nn.Module):
             
     # reseting the cache between 2 separate text generation
     def reset_cache(self) :
-        self.cache_v = None
-        self.cache_k = None
+        self.kv_cache.reset_cache()
 
     def forward(self, x, use_cache = False):
         B, T, C = x.size() # batch size, sequence length, embedding dimensionality (n_embd)
@@ -76,13 +275,7 @@ class CausalSelfAttention(nn.Module):
 
         # if use_Cache is true
         if use_cache :
-            if self.cache_k is None:
-                self.cache_k = k_new
-                self.cache_v = v_new
-            else :
-                self.cache_k = torch.cat([self.cache_k, k_new], dim = 1)
-                self.cache_v = torch.cat([self.cache_v, v_new], dim = 1)
-            k , v = self.cache_k, self.cache_v
+            k, v = self.kv_cache(k_new, v_new)
         else :
             k, v = k_new, v_new
 
@@ -228,8 +421,30 @@ class GPT(nn.Module):
     def memory_usage_kv_cache(self):
         total_bytes = 0
         for block in self.transformer.h :
-            total_bytes += block.attn.cache_k.numel() * block.attn.cache_k.element_size()
-            total_bytes += block.attn.cache_v.numel() * block.attn.cache_v.element_size()
+            total_bytes += block.attn.kv_cache.cache_k.numel() * block.attn.kv_cache.cache_k.element_size()
+            total_bytes += block.attn.kv_cache.cache_v.numel() * block.attn.kv_cache.cache_v.element_size()
+
+        return total_bytes / 1024**2
+    
+    def memory_usage_kv_cache_quant(self):
+        total_bytes = 0
+        for block in self.transformer.h :
+            total_bytes = sum(k.numel() * k.element_size() for k in block.attn.kv_cache.cache_k)
+            total_bytes += sum(v.numel() * v.element_size() for v in block.attn.kv_cache.cache_v)
+            total_bytes += sum(kscale.numel() * kscale.element_size() for kscale in block.attn.kv_cache.K_scale)
+            total_bytes += sum(vscale.numel() * vscale.element_size() for vscale in block.attn.kv_cache.V_scale)
+
+        return total_bytes / 1024**2
+    
+    def memory_usage_kivi_cache_quant(self):
+        total_bytes = 0
+        for block in self.transformer.h :
+            total_bytes = sum(k.numel() * k.element_size() for k in block.attn.kv_cache.cache_k)
+            total_bytes += sum(v.numel() * v.element_size() for v in block.attn.kv_cache.cache_v)
+            total_bytes += sum(kscale.numel() * kscale.element_size() for kscale in block.attn.kv_cache.K_scale)
+            total_bytes += sum(vscale.numel() * vscale.element_size() for vscale in block.attn.kv_cache.V_scale)
+            total_bytes += sum(vscale.numel() * vscale.element_size() for vscale in block.attn.kv_cache.cache_k_residual)
+            total_bytes += sum(vscale.numel() * vscale.element_size() for vscale in block.attn.kv_cache.cache_v_residual)
 
         return total_bytes / 1024**2
 
@@ -417,7 +632,7 @@ class GPT(nn.Module):
                 idx = torch.cat((idx, idx_next), dim=1)
                 idx_cond = idx_next
             
-            memory = self.memory_usage_kv_cache()
+            memory = self.memory_usage_kivi_cache_quant()
 
         else :
             for _ in range(max_new_tokens):
@@ -457,31 +672,12 @@ if __name__ == "__main__":
 
     config = GPTConfig()
     model = GPT.from_pretrained("gpt2")
-    # benchmark_kv = []
-    # for x in range(10, 511, 50):
-    #     print(f"Generating for max new tokens:{x}")
-    #     max_new_tokens = x
-    #     start_time = time.time()
-    #     output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= True)
-    #     end_time = time.time()
-    #     latency = latency * 1000 #converting to ms
-    #     output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
-    #     total_time = end_time - start_time
-    #     print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
-    #     total_tokens_sec = max_new_tokens / total_time
-    #     print(f"tokens per sec is : {total_tokens_sec}")
-    #     benchmark_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
-    
-    # with open("benchmark_results_kv.json", "w") as file:
-    #     json.dump(benchmark_kv, file, indent=4)
-
-
-    benchmark__without_kv = []
+    benchmark_kv = []
     for x in range(10, 511, 50):
         print(f"Generating for max new tokens:{x}")
         max_new_tokens = x
         start_time = time.time()
-        output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= False)
+        output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= True)
         end_time = time.time()
         latency = latency * 1000 #converting to ms
         output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
@@ -489,10 +685,29 @@ if __name__ == "__main__":
         print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
         total_tokens_sec = max_new_tokens / total_time
         print(f"tokens per sec is : {total_tokens_sec}")
-        benchmark__without_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
+        benchmark_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
     
-    with open("benchmark_results_without_kv.json", "w") as file:
-        json.dump(benchmark__without_kv, file, indent=4)
+    with open("benchmark_results_KIVI_quant.json", "w") as file:
+        json.dump(benchmark_kv, file, indent=4)
+
+
+    # benchmark__without_kv = []
+    # for x in range(10, 511, 50):
+    #     print(f"Generating for max new tokens:{x}")
+    #     max_new_tokens = x
+    #     start_time = time.time()
+    #     output_tokens, memory, latency = model.generate(input_token_ids, max_new_tokens = max_new_tokens, temperature=1, use_cache= False)
+    #     end_time = time.time()
+    #     latency = latency * 1000 #converting to ms
+    #     output_text = tokenizer.decode(output_tokens[0], skip_special_tokens = True)
+    #     total_time = end_time - start_time
+    #     print(f"total_time for {x} token is {total_time*1000}ms and latency is {latency}ms with memory usage {memory}")
+    #     total_tokens_sec = max_new_tokens / total_time
+    #     print(f"tokens per sec is : {total_tokens_sec}")
+    #     benchmark__without_kv.append({"token_generated":x, "tokens_per_sec": total_tokens_sec, "total_time": total_time, "memory": memory, "latency": latency})
+    
+    # with open("benchmark_results_without_kv.json", "w") as file:
+    #     json.dump(benchmark__without_kv, file, indent=4)
 
     
 
