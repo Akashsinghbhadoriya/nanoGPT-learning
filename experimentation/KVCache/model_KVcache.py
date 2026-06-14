@@ -11,7 +11,6 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 import json
-from Quantization.GPTQ import pack_int4, unpack_int4
 
 # class LayerNorm is the layer normalization to produce mean as 0 and variance 1
 class LayerNorm(nn.Module):
@@ -285,6 +284,7 @@ class CausalSelfAttention(nn.Module):
         # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
         if self.flash:
             # efficient attention using Flash Attention CUDA kernels
+            print("using flash attention")
             y = torch.nn.functional.scaled_dot_product_attention(q_new, k, v, attn_mask=None, dropout_p=self.dropout if self.training else 0, is_causal=True)
         else:
             # manual implementation of attention
