@@ -11,3 +11,5 @@ input.txt
 env/
 venv/
 questions/
+minBPE/*.model
+minBPE/*.vocab
