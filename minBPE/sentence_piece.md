@@ -1,5 +1,8 @@
 ## SentencePiece
 
+unigram_tokenizer.py contains the complete Sentencepiece implementation\
+I have trained it on taylorswift.txt with vocab_size = 1000
+
 It is a simple language independent text tokenizer and detokenizer mainly for neural network based text generation. The size of the vocabulary is predetermined prior to Neural Model Training. Sentencepiece implements 2 subword segmentation algorithms. This allows for end to end system that does not depend on any language specific processing.\
 1. byte-pair encoding (BPE)
 2. Unigram language model

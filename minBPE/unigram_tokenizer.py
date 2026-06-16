@@ -1,13 +1,59 @@
 from collections import Counter
 import math
+import json
+
 
 class UnigramTokenizer:
 
     def __init__(self, vocab_size):
         self.vocab_size = vocab_size
+        self.SPACE_TOKEN = "\u2581"
+
+    def save(self, path):
+        data = {
+            "vocab": list(self.vocab),
+            "scores": self.scores,
+            "piece_to_id": self.piece_to_id
+        }
+
+        with open(path, "w") as f:
+            json.dump(data, f)
+
+    def load(self, path):
+
+        with open(path) as f:
+            data = json.load(f)
+
+
+        self.vocab = set(data["vocab"])
+
+        self.scores = data["scores"]
+
+        self.piece_to_id = data["piece_to_id"]
+
+        self.id_to_piece = {
+            int(v): k
+            for k, v in self.piece_to_id.items()
+        }
+    
+    def encode(self, text):
+        ids = []
+        text = (self.SPACE_TOKEN + text.replace(" ", self.SPACE_TOKEN))
+        for word in text.split():
+
+            pieces = self.viterbi(word, self.vocab, self.scores)
+            for piece in pieces:
+                ids.append(self.piece_to_id[piece])
+        return ids
+
+    def decode(self, ids):
+        pieces = [self.id_to_piece[id] for id in ids]
+        text = "".join(pieces)
+        text = text.replace(self.SPACE_TOKEN, " ")
+        return text.lstrip()
 
     def train(self, corpus):
-        
+        corpus = corpus.replace(" ",self.SPACE_TOKEN) #replace space with a unique token
         vocab, piece_freq = self.build_seed_vocab(corpus)
         scores = self.generate_scores(piece_freq)
         # iterating over the corpus till the vocab becomes equal to the vocab_size
@@ -19,7 +65,12 @@ class UnigramTokenizer:
             print("length vocab after pruning:",len(vocab))
             print("vocab after pruning:",vocab)
             scores = self.update_scores(vocab, token_usage) # calculate the updated scores
-
+        
+        sorted_vocab = sorted(vocab)
+        self.piece_to_id = {piece:idx for idx, piece in enumerate(sorted_vocab)}
+        self.id_to_piece = {idx:piece for idx, piece in enumerate(sorted_vocab)}
+        self.vocab = sorted_vocab
+        self.scores = scores
 
     def viterbi(self, word, vocab, scores):
         # DP Algorithm to calculate the best segmentation from the vocab
@@ -51,13 +102,7 @@ class UnigramTokenizer:
         pieces.reverse()
         return pieces
 
-    def encode(self):
-        pass
-
-    def decode(self):
-        pass
-
-    def build_seed_vocab(self, corpus, max_piece_length=8, min_freq = 2):
+    def build_seed_vocab(self, corpus, max_piece_length=8, min_freq = 5):
 
         #frequency of each word
         word_freqs = Counter(corpus.split())
@@ -114,15 +159,14 @@ class UnigramTokenizer:
     
     def prune_vocab(self, vocab, token_usage):
         #removing the pieces which are less desired or bad tokens
-        new_vocab = []
-        for piece in vocab:
+        keep_chars = {p for p in vocab if len(p) == 1}
 
-            if len(piece) == 1:
-                new_vocab.append(piece)
-            
-            elif token_usage.get(piece, 0) > 0:
-                new_vocab.append(piece)
-        return new_vocab
+        candidates = [p for p in vocab if len(p) > 1]
+
+        candidates.sort(key=lambda p: token_usage.get(p,0))
+        remove_count = int(len(vocab) * 0.1)
+        candidates = candidates[remove_count:]
+        return keep_chars.union(candidates)
     
     def update_scores(self, vocab, token_usage):
         # updating the scores with the pruned vocab
@@ -134,15 +178,21 @@ class UnigramTokenizer:
             scores[piece] = math.log(usage)
         return scores
 
-
-
-
-
-
-
-
 if __name__ == "__main__":
 
-    tokenizer = UnigramTokenizer(vocab_size=15)
-    corpus = "hello hello help helmet world world"
-    tokenizer.train(corpus)
+    with open("taylorswift.txt") as f:
+        text = f.read()
+
+    tokenizer = UnigramTokenizer(vocab_size=1000)
+    # tokenizer.train(text)
+
+    # tokenizer.save(
+    #     "taylorswift_unigram.json"
+    # )
+    tokenizer.load("taylorswift_unigram.json")
+
+    text = "Hi How are you!"
+    encoded_text = tokenizer.encode(text)
+    print(encoded_text)
+    decoded_text = tokenizer.decode(encoded_text)
+    print(decoded_text)
