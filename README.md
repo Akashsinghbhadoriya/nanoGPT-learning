@@ -49,9 +49,10 @@ Planned implementations:
 * [x] Grouped Query Attention (GQA)
 * [x] SwiGLU
 * [x] Multi Query Attention (MQA)
-* [ ] Quantization Experiments
-* [ ] Flash Attention Integration
-
+* [x] Quantization Experiments
+* [x] Flash Attention Integration
+* [x] minBPE
+* [] Sentencepiece
 ---
 
 ## Phase 3: Inference Optimization
@@ -156,4 +157,6 @@ Scaled Dot Product Attention
       ↓
 Output Projection
 ```
+```raw
+
 ```
