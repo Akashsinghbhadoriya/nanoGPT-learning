@@ -8,7 +8,7 @@ n_embd: 768
 dropout: 0.0
 bias: True
 use_rope: False
-use_kvcache: True
+use_kvcache: False
 use_rmsnorm: False
 use_gqa: False
 use_swiglu: False

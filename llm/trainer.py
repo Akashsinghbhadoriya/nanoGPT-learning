@@ -4,7 +4,7 @@ import os
 
 class Trainer:
 
-    def __init__(self, model, config, optimizer, train_loader, val_loader, train_args, device):
+    def __init__(self, model, config, optimizer, train_loader, val_loader, train_args, device, is_lora=False):
         
         self.model = model
         self.optimizer = optimizer
@@ -13,6 +13,7 @@ class Trainer:
         self.train_args = train_args
         self.device = device
         self.config = config
+        self.is_lora = is_lora
 
         self.model.to(self.device)
 
@@ -35,7 +36,10 @@ class Trainer:
                 is_best_loss = losses['val'] < best_val_loss
                 if is_best_loss:
                     best_val_loss = losses['val']
-                self.add_checkpoint(step, best_val_loss)
+                if not self.is_lora:
+                    self.add_checkpoint(step, best_val_loss)
+                else:
+                    self.add_lora_checkpoint(step, best_val_loss)
 
             try:
                 x, y = next(data_iter)
@@ -59,6 +63,21 @@ class Trainer:
                 print(f"step:{step}, train loss:{loss.item():.4f}")
 
             step+=1
+    
+    def add_lora_checkpoint(self, step, best_val_loss):
+        checkpoint = {
+            'model': {k: v for k, v in self.model.state_dict().items() if '_lora' in k},
+            'optimizer': self.optimizer.state_dict(),
+            'train_args': self.train_args,
+            'iter_num': step,
+            'best_val_loss': best_val_loss,
+            'config': self.config,
+        }
+
+        out_dir = os.path.join(self.train_args.out_dir, self.config.name)
+        os.makedirs(out_dir, exist_ok=True)
+        print(f"saving checkpoint to {out_dir}")
+        torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
 
     def add_checkpoint(self, step, best_val_loss):
         checkpoint = {
@@ -100,28 +119,28 @@ class Trainer:
             'train': iter(self.train_loader),
             'val': iter(self.val_loader)
         }
+        with torch.no_grad():
+            for split in ['train', 'val']:
+                losses = torch.zeros(self.train_args.eval_iters)
+                data_iter = loaders[split]
+                for k in range(self.train_args.eval_iters):
 
-        for split in ['train', 'val']:
-            losses = torch.zeros(self.train_args.eval_iters)
-            data_iter = loaders[split]
-            for k in range(self.train_args.eval_iters):
+                    try:
+                        X, Y = next(data_iter)
+                    except StopIteration:
+                        # Reset the iterator if the dataloader runs out of data
+                        if split == 'train':
+                            loaders['train'] = iter(self.train_loader)
+                        else:
+                            loaders['val'] = iter(self.val_loader)
+                        data_iter = loaders[split]
+                        X, Y = next(data_iter)
+                    
+                    X = X.to(self.device)
+                    Y = Y.to(self.device)
 
-                try:
-                    X, Y = next(data_iter)
-                except StopIteration:
-                    # Reset the iterator if the dataloader runs out of data
-                    if split == 'train':
-                        loaders['train'] = iter(self.train_loader)
-                    else:
-                        loaders['val'] = iter(self.val_loader)
-                    data_iter = loaders[split]
-                    X, Y = next(data_iter)
-                
-                X.to(self.device)
-                Y.to(self.device)
-
-                logits, loss = self.model(X, Y)
-                losses[k] = loss.item()
-            out[split] = losses.mean()
+                    logits, loss = self.model(X, Y)
+                    losses[k] = loss.item()
+                out[split] = losses.mean()
         self.model.train()
         return out

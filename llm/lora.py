@@ -8,17 +8,13 @@ class ReplaceLora(nn.Module):
     def __init__(self, layer, rank = 4):
         super().__init__()
         self.original_layer = layer
-
-        self.original_layer.weight.requires_grad = False #freezing the original weights
-        if self.original_layer.bias is not None:
-            self.original_layer.bias.requires_grad = False
         out, inp = layer.weight.shape
 
         self.a_lora = nn.Linear(inp, rank, bias=False)
         self.b_lora = nn.Linear(rank, out, bias=False)
         
         nn.init.kaiming_uniform_(self.a_lora.weight, a=5**0.5)
-        nn.init.zeros_(self.b_lora.weight) #initializing b to zero so that the pretrained model is not impacted
+        nn.init.zeros_(self.b_lora.weight) 
 
     def forward(self, x):
 
@@ -28,7 +24,7 @@ class ReplaceLora(nn.Module):
         return original_output + lora_output
 
 
-def lora_adapters(model, target_modules):
+def lora_adapters(model, target_modules, lora_r):
 
     for name, module in model.named_modules():
         if any(name.endswith(target) for target in target_modules):
@@ -41,7 +37,7 @@ def lora_adapters(model, target_modules):
                 parent = getattr(parent, part)
                 
             # PASS THE OLD MODULE IN: This keeps the original weights!
-            setattr(parent, sub_name, ReplaceLora(module, rank=4))
+            setattr(parent, sub_name, ReplaceLora(module, rank=lora_r))
 
     return model
         
@@ -58,25 +54,15 @@ def get_linear_layer_names(module, prefix=""):
 
 def freeze_parameters(model):
     for name, param in model.named_parameters():
-        print(name)
+        
         if "_lora" not in name:
-            print("freezing:", name)
             param.requires_grad = False
 
-    return model
+def LoraModel(model, lora_r, target_substrings):
 
-def LoraModel():
-
-    config = GPTConfig()
-    model = GPT.from_pretrained("gpt2")
     all_layers = get_linear_layer_names(model)
-    target_substrings = ["c_attn"]
     target_names = [target for target in all_layers if any(sub in target for sub in target_substrings)]
-    print(target_names)
-    lora_model = lora_adapters(model, target_names)
+    
+    lora_model = lora_adapters(model, target_names, lora_r)
     freeze_parameters(lora_model)
-    print(lora_model)
-
-if __name__=="__main__":
-
-    LoraModel()
+    return lora_model
