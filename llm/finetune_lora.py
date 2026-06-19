@@ -20,8 +20,8 @@ def build_optimizer(model, train_args, device):
 def finetune(
         config_path: Path, 
         train_config_path: Path,
-        lora_r: int = 8,
-        target_substrings: list = ["c_attn"]
+        lora_r: int = 16,
+        target_substrings: list = ["c_attn", "c_proj"]
     ):
 
     config = ModelConfig.load_config(config_path)
@@ -39,6 +39,6 @@ def finetune(
 
     trainer = Trainer(model,config , optimizer, train_loader, val_loader, train_args, device, is_lora=True)
 
-    trainer.fit()
+    trainer.fit(lora_r, target_substrings)
 
     

@@ -4,6 +4,7 @@ from pathlib import Path
 from config import ModelConfig
 from transformers import GPT2Tokenizer
 from model import GPT
+from lora import LoraModel
 import os
 
 def process_prompt(prompt, model, config, tokenizer, max_new_tokens, temperature, top_k):
@@ -29,7 +30,7 @@ def interact(model, config, tokenizer, max_new_tokens, temperature, top_k):
         process_prompt(prompt, model, config, tokenizer, max_new_tokens, temperature, top_k)
 
 @torch.inference_mode()
-def main(config_path: Path, max_new_tokens: int = 50, temperature: float = 0.9, top_k: int | None = 50):
+def main(config_path: Path, checkpoint_dir:Path = None, max_new_tokens: int = 50, temperature: float = 0.9, top_k: int | None = 50):
     print(config_path)
 
     config = ModelConfig.load_config(config_path)
@@ -39,6 +40,18 @@ def main(config_path: Path, max_new_tokens: int = 50, temperature: float = 0.9, 
 
     if "gpt" in config.name.lower():
         model = GPT.from_pretrained("gpt2", config)
+        checkpoint_dir = Path("out/finetune/gpt2/ckpt.pt")
+        if checkpoint_dir is not None and 'finetune' in checkpoint_dir.parts and os.path.exists(checkpoint_dir):
+            print(f"Found checkpoint at: {ckpt_path}")
+            checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            saved_config = checkpoint['config']
+            saved_model_state = checkpoint['model']
+            target_substrings = checkpoint['target_substrings']
+            lora_rank = checkpoint['lora_rank']
+            model = LoraModel(model, lora_rank, target_substrings)
+            model.load_state_dict(saved_model_state, strict=False)
+
+
     else:
         out_dir = os.path.join("out",config.name)
         ckpt_path = os.path.join(out_dir, 'ckpt.pt')

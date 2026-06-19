@@ -1,11 +1,15 @@
-from model import GPTConfig, GPT
+from model import GPTConfig, GPT,GPT2Tokenizer
 import torch
 import torch.nn as nn
+import os
+import sys
 from torch.nn import functional as F
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../llm'))
 
 class ReplaceLora(nn.Module):
 
-    def __init__(self, layer, rank = 4):
+    def __init__(self, layer, rank = 8):
         super().__init__()
         self.original_layer = layer
 
@@ -41,7 +45,7 @@ def lora_adapters(model, target_modules):
                 parent = getattr(parent, part)
                 
             # PASS THE OLD MODULE IN: This keeps the original weights!
-            setattr(parent, sub_name, ReplaceLora(module, rank=4))
+            setattr(parent, sub_name, ReplaceLora(module, rank=8))
 
     return model
         
@@ -65,6 +69,18 @@ def freeze_parameters(model):
 
     return model
 
+def loading(model):
+    ckpt_path = 'ckpt.pt'
+    if os.path.exists(ckpt_path):
+        print(f"Found checkpoint at: {ckpt_path}")
+        checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+        saved_config = checkpoint['config']
+        saved_model_state = checkpoint['model']
+
+    print(saved_model_state)
+    model.load_state_dict(saved_model_state, strict = False)
+
+
 def LoraModel():
 
     config = GPTConfig()
@@ -76,6 +92,19 @@ def LoraModel():
     lora_model = lora_adapters(model, target_names)
     freeze_parameters(lora_model)
     print(lora_model)
+    loading(lora_model)
+    print(lora_model)
+
+    input = "this is my code"
+
+    tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+    input_ids = tokenizer.encode(input, return_tensors="pt")
+    ouput_ids, memory, latency = lora_model.generate(input_ids, 30, 0.7, use_cache= True)
+    print(ouput_ids[0])
+    print(tokenizer.decode(ouput_ids[0], skip_special_tokens=True))
+    print(memory)
+    print(latency)
+
 
 if __name__=="__main__":
 

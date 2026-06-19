@@ -4,7 +4,7 @@ log_interval: 10
 eval_iters: 50
 dataset: 'shakespeare_char'
 learning_rate: 3.0e-4 
-max_iters: 700
+max_iters: 200
 weight_decay: 1.0e-1
 beta1: 0.9 
 beta2: 0.95 
