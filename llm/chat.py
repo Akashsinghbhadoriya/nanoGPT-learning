@@ -39,16 +39,17 @@ def main(config_path: Path, checkpoint_dir:Path = None, max_new_tokens: int = 50
     tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 
     if "gpt" in config.name.lower():
-        model = GPT.from_pretrained("gpt2", config)
+        model = GPT.from_pretrained(config.name, config)
         checkpoint_dir = Path("out/finetune/gpt2/ckpt.pt")
         if checkpoint_dir is not None and 'finetune' in checkpoint_dir.parts and os.path.exists(checkpoint_dir):
-            print(f"Found checkpoint at: {ckpt_path}")
-            checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            print(f"Found checkpoint at: {checkpoint_dir}")
+            checkpoint = torch.load(checkpoint_dir, map_location='cpu', weights_only=False)
             saved_config = checkpoint['config']
             saved_model_state = checkpoint['model']
             target_substrings = checkpoint['target_substrings']
             lora_rank = checkpoint['lora_rank']
-            model = LoraModel(model, lora_rank, target_substrings)
+            alpha = checkpoint['alpha']
+            model = LoraModel(model, lora_rank, target_substrings, alpha)
             model.load_state_dict(saved_model_state, strict=False)
 
 

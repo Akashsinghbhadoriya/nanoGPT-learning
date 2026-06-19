@@ -17,7 +17,7 @@ class Trainer:
 
         self.model.to(self.device)
 
-    def fit(self, lora_r = None, target_substrings=None):
+    def fit(self, lora_r = None, target_substrings=None, alpha=None):
 
         self.model.train()
 
@@ -39,7 +39,7 @@ class Trainer:
                 if not self.is_lora:
                     self.add_checkpoint(step, best_val_loss)
                 else:
-                    self.add_lora_checkpoint(step, best_val_loss, lora_r, target_substrings)
+                    self.add_lora_checkpoint(step, best_val_loss, lora_r, target_substrings, alpha)
 
             try:
                 x, y = next(data_iter)
@@ -64,7 +64,7 @@ class Trainer:
 
             step+=1
     
-    def add_lora_checkpoint(self, step, best_val_loss, lora_r, target_substrings):
+    def add_lora_checkpoint(self, step, best_val_loss, lora_r, target_substrings, alpha):
         checkpoint = {
             'model': {k: v for k, v in self.model.state_dict().items() if '_lora' in k},
             'optimizer': self.optimizer.state_dict(),
@@ -73,7 +73,8 @@ class Trainer:
             'best_val_loss': best_val_loss,
             'config': self.config,
             "lora_rank": lora_r,
-            "target_substrings": target_substrings
+            "target_substrings": target_substrings,
+            "alpha": alpha
         }
 
         out_dir = os.path.join(self.train_args.out_dir, self.config.name)

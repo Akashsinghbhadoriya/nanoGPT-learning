@@ -5,10 +5,11 @@ from torch.nn import functional as F
 
 class ReplaceLora(nn.Module):
 
-    def __init__(self, layer, rank = 4):
+    def __init__(self, layer, rank = 8, alpha = 16):
         super().__init__()
         self.original_layer = layer
         out, inp = layer.weight.shape
+        self.scaling = alpha / rank
 
         self.a_lora = nn.Linear(inp, rank, bias=False)
         self.b_lora = nn.Linear(rank, out, bias=False)
@@ -21,10 +22,10 @@ class ReplaceLora(nn.Module):
         original_output = self.original_layer(x)
         lora_output = self.b_lora(self.a_lora(x))
 
-        return original_output + lora_output
+        return original_output + self.scaling * lora_output
 
 
-def lora_adapters(model, target_modules, lora_r):
+def lora_adapters(model, target_modules, lora_r, alpha):
 
     for name, module in model.named_modules():
         if any(name.endswith(target) for target in target_modules):
@@ -37,7 +38,7 @@ def lora_adapters(model, target_modules, lora_r):
                 parent = getattr(parent, part)
                 
             # PASS THE OLD MODULE IN: This keeps the original weights!
-            setattr(parent, sub_name, ReplaceLora(module, rank=lora_r))
+            setattr(parent, sub_name, ReplaceLora(module, rank=lora_r, alpha=alpha))
 
     return model
         
@@ -58,11 +59,11 @@ def freeze_parameters(model):
         if "_lora" not in name:
             param.requires_grad = False
 
-def LoraModel(model, lora_r, target_substrings):
+def LoraModel(model, lora_r, target_substrings, alpha):
 
     all_layers = get_linear_layer_names(model)
     target_names = [target for target in all_layers if any(sub in target for sub in target_substrings)]
     
-    lora_model = lora_adapters(model, target_names, lora_r)
+    lora_model = lora_adapters(model, target_names, lora_r, alpha)
     freeze_parameters(lora_model)
     return lora_model

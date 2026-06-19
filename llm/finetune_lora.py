@@ -21,6 +21,7 @@ def finetune(
         config_path: Path, 
         train_config_path: Path,
         lora_r: int = 16,
+        alpha: int = 32,
         target_substrings: list = ["c_attn", "c_proj"]
     ):
 
@@ -29,7 +30,7 @@ def finetune(
 
     device = train_args.device
 
-    model = LoraModel(GPT.from_pretrained("gpt2", config), lora_r, target_substrings)
+    model = LoraModel(GPT.from_pretrained("gpt2", config), lora_r, target_substrings, alpha)
 
     data_dir = os.path.join('../data/', train_args.dataset)
     train_loader = build_dataloader(config, data_dir, train_args, 'train')
@@ -39,6 +40,6 @@ def finetune(
 
     trainer = Trainer(model,config , optimizer, train_loader, val_loader, train_args, device, is_lora=True)
 
-    trainer.fit(lora_r, target_substrings)
+    trainer.fit(lora_r, target_substrings, alpha)
 
     
