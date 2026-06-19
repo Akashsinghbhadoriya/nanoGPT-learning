@@ -1,7 +1,7 @@
 from pathlib import Path
 from config import ModelConfig, FinetuneArgs
 from model import GPT
-from dataloader import build_dataloader
+from dataloader import build_dataloader, build_instruction_dataloader
 from trainer import Trainer
 import os
 from lora import LoraModel
@@ -33,8 +33,8 @@ def finetune(
     model = LoraModel(GPT.from_pretrained("gpt2", config), lora_r, target_substrings, alpha)
 
     data_dir = os.path.join('../data/', train_args.dataset)
-    train_loader = build_dataloader(config, data_dir, train_args, 'train')
-    val_loader = build_dataloader(config, data_dir, train_args, 'val')
+    train_loader = build_instruction_dataloader(config, data_dir, train_args, 'train')
+    val_loader = build_instruction_dataloader(config, data_dir, train_args, 'val')
 
     optimizer = build_optimizer(model, train_args, device)
 

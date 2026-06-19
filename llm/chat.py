@@ -40,7 +40,7 @@ def main(config_path: Path, checkpoint_dir:Path = None, max_new_tokens: int = 50
 
     if "gpt" in config.name.lower():
         model = GPT.from_pretrained(config.name, config)
-        checkpoint_dir = Path("out/finetune/gpt2/ckpt.pt")
+        checkpoint_dir = Path("out/finetune/alpaca_small/gpt2/ckpt.pt")
         if checkpoint_dir is not None and 'finetune' in checkpoint_dir.parts and os.path.exists(checkpoint_dir):
             print(f"Found checkpoint at: {checkpoint_dir}")
             checkpoint = torch.load(checkpoint_dir, map_location='cpu', weights_only=False)

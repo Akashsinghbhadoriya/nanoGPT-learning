@@ -24,7 +24,7 @@ class Trainer:
         step = 0
         best_val_loss = 1e9
         data_iter = iter(self.train_loader)
-        while step < self.train_args.max_iters:
+        while step < self.train_args.max_iters + 1:
 
             lr = self.get_lr(step) if self.train_args.decay_lr else self.train_args.learning_rate
             for param_group in self.optimizer.param_groups:
@@ -40,6 +40,7 @@ class Trainer:
                     self.add_checkpoint(step, best_val_loss)
                 else:
                     self.add_lora_checkpoint(step, best_val_loss, lora_r, target_substrings, alpha)
+            
 
             try:
                 x, y = next(data_iter)

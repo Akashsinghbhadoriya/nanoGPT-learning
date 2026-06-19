@@ -404,7 +404,7 @@ class GPT(nn.Module):
             # if we are given some desired targets also calculate the loss
             logits = self.lm_head(x)
             # cross entropy loss is the negative loss probability calculation comparing the predicted values with target values
-            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+            loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-100)
         else:
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
