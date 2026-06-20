@@ -20,8 +20,8 @@ def build_optimizer(model, train_args, device):
 def finetune(
         config_path: Path, 
         train_config_path: Path,
-        lora_r: int = 16,
-        alpha: int = 32,
+        lora_r: int = 8,
+        alpha: int = 16,
         target_substrings: list = ["c_attn", "c_proj"]
     ):
 

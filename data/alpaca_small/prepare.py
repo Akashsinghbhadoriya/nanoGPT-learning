@@ -6,7 +6,7 @@ import json
 ds = load_dataset("tatsu-lab/alpaca")
 print(ds)
 
-sub_dataset = ds['train'].select(range(5000))
+sub_dataset = ds['train'].select(range(10000))
 
 split_data = sub_dataset.train_test_split(test_size=0.1, train_size=0.9, seed=42)
 train_data = split_data['train']

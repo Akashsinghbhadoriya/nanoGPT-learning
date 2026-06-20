@@ -33,8 +33,8 @@ class InstructionDataset(Dataset):
     def __getitem__(self, index):
         start_idx = index * self.max_length
         end_idx = start_idx + self.max_length
-        x = torch.tensor(self.input_ids[start_idx: end_idx], dtype=torch.long)
-        y = torch.tensor(self.labels[start_idx : end_idx], dtype=torch.long)
+        x = torch.tensor(self.input_ids[start_idx: end_idx - 1], dtype=torch.long)
+        y = torch.tensor(self.labels[start_idx + 1 : end_idx], dtype=torch.long)
 
         return x, y
 
