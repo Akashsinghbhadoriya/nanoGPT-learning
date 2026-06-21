@@ -30,7 +30,7 @@ def interact(model, config, tokenizer, max_new_tokens, temperature, top_k):
         process_prompt(prompt, model, config, tokenizer, max_new_tokens, temperature, top_k)
 
 @torch.inference_mode()
-def main(config_path: Path, checkpoint_dir:Path = None, max_new_tokens: int = 50, temperature: float = 0.9, top_k: int | None = 50):
+def main(config_path: Path, checkpoint_dir:Path = None, max_new_tokens: int = 100, temperature: float = 0.2, top_k: int | None = 20):
     print(config_path)
 
     config = ModelConfig.load_config(config_path)

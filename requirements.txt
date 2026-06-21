@@ -9,3 +9,8 @@ streamlit
 jsonargparse
 regex
 pytest
+peft
+bitsandbytes
+datasets
+accelerate
+trl
